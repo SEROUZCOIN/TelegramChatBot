@@ -55,9 +55,15 @@ pnpm --filter @tsp/mobile start
 ## Tests
 
 ```bash
-pnpm --filter @tsp/shared test     # state machine, pip math, entitlements
-pnpm --filter @tsp/api test        # entitlement gating and payment settlement
+pnpm --filter @tsp/shared test     # 47 — state machine, pip math, entitlements
+pnpm --filter @tsp/api test        # 12 — entitlement grants, locked-payload leakage
 ```
+
+The API suite runs against a real Postgres, because the behaviour worth testing
+there is transactional: that an early renewal extends from the existing expiry
+rather than today, that a one-time coaching purchase never lapses, and that a
+locked signal's levels are *absent* from the serialised payload rather than
+merely flagged.
 
 ## Before you submit to either store
 
