@@ -23,8 +23,13 @@ async function bootstrap(): Promise<void> {
   app.setGlobalPrefix('api');
   // Request validation is per-route via ZodValidationPipe against the shared
   // schemas, so there is no global class-validator pipe here.
+  // Comma-separated so one deployment can serve the admin panel, a web build
+  // and a staging origin without a code change.
   app.enableCors({
-    origin: [process.env.ADMIN_PUBLIC_URL ?? 'http://localhost:3001'],
+    origin: (process.env.ADMIN_PUBLIC_URL ?? 'http://localhost:3001')
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean),
     credentials: true,
   });
 

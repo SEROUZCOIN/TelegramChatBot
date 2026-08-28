@@ -101,11 +101,14 @@ function formatZone(low?: number, high?: number): string {
 const styles = StyleSheet.create({
   card: {
     backgroundColor: theme.surface,
-    borderColor: theme.border,
+    // A brighter edge than the panel borders elsewhere: on a phone the card
+    // background alone is too close to the page to read as one unit, which
+    // made the header look detached from the body it belongs to.
+    borderColor: '#2f3f63',
     borderWidth: 1,
     borderRadius: theme.radius,
     padding: 14,
-    marginBottom: 10,
+    marginBottom: 12,
   },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
@@ -114,7 +117,7 @@ const styles = StyleSheet.create({
   dirText: { fontSize: 11, fontWeight: '800' },
   timeframe: { color: theme.muted, fontSize: 12 },
   lockedBody: {
-    marginTop: 12,
+    marginTop: 10,
     paddingVertical: 14,
     paddingHorizontal: 12,
     borderRadius: 10,
