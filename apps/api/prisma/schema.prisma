@@ -1,0 +1,601 @@
+// Trading Signals + Academy platform.
+//
+// Two rules run through this schema:
+//  1. Signal status is derived from the SignalUpdate ledger, never edited
+//     directly, so the published trade record cannot drift from the timeline.
+//  2. Access is decided here and in the API, never on the client.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/* ------------------------------- enums --------------------------------- */
+
+enum UserRole {
+  USER
+  COACH
+  ADMIN
+}
+
+enum PlanCode {
+  FREE
+  SIGNALS
+  NORMAL
+  PRO
+  ULTRA
+}
+
+enum PlanInterval {
+  MONTH
+  YEAR
+  ONE_TIME
+}
+
+// Which payment rails a plan accepts. Default across the platform is EXTERNAL.
+// Apple 3.1.3(d) permits external payment for one-to-one coaching (PRO/ULTRA);
+// 3.1.1 requires IAP to unlock recorded video (NORMAL). If App Review objects,
+// flip that one plan row to IAP or BOTH — the provider is already registered,
+// so no code change and no new build is needed.
+enum PaymentMode {
+  EXTERNAL
+  IAP
+  BOTH
+}
+
+enum SubscriptionStatus {
+  PENDING
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+}
+
+enum PaymentProviderCode {
+  STRIPE
+  CRYPTO
+  BANK
+  IAP
+}
+
+enum PaymentStatus {
+  PENDING
+  AWAITING_REVIEW
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum TradeDirection {
+  BUY
+  SELL
+}
+
+enum OrderType {
+  MARKET
+  LIMIT
+  STOP
+}
+
+enum SignalStatus {
+  DRAFT
+  PUBLISHED
+  ACTIVE
+  BE_SET
+  TP1_HIT
+  TP2_HIT
+  TP3_HIT
+  CLOSED_WIN
+  CLOSED_BE
+  CLOSED_LOSS
+  CANCELLED
+}
+
+enum SignalUpdateType {
+  ENTRY_HIT
+  MOVED_TO_BE
+  TP1_HIT
+  TP2_HIT
+  TP3_HIT
+  SL_HIT
+  PARTIAL_CLOSE
+  CLOSE_WIN
+  CLOSE_LOSS
+  CANCELLED
+  COMMENT
+}
+
+enum CourseLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum CoachingStatus {
+  REQUESTED
+  SCHEDULED
+  LIVE
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum AdSlot {
+  FEED_INLINE
+  SIGNAL_DETAIL
+  COURSE_LIST
+  INTERSTITIAL
+  REWARDED
+}
+
+enum LinkCategory {
+  SOCIAL
+  CHANNEL
+  BROKER
+  SUPPORT
+  OTHER
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+}
+
+/* -------------------------------- users -------------------------------- */
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  displayName  String
+  role         UserRole @default(USER)
+  locale       String   @default("en")
+  avatarUrl    String?
+  isBanned     Boolean  @default(false)
+
+  // Risk disclaimer acceptance is a compliance artifact, not a UI preference:
+  // the app is gated on it and the version is retained for the audit trail.
+  riskDisclaimerAcceptedAt      DateTime?
+  riskDisclaimerVersion         String?
+
+  telegramId       BigInt?  @unique
+  telegramUsername String?
+  // Single-use code the user pastes into `/start` to bind their Telegram account.
+  telegramLinkCode String?  @unique
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  subscriptions    Subscription[]
+  payments         Payment[]
+  devices          Device[]
+  lessonProgress   LessonProgress[]
+  bookedSessions   CoachingSession[] @relation("StudentSessions")
+  coachedSessions  CoachingSession[] @relation("CoachSessions")
+  linkClicks       LinkClick[]
+  auditLogs        AuditLog[]
+  authoredSignals  Signal[]
+  reviewedPayments Payment[]         @relation("PaymentReviewer")
+
+  @@index([role])
+  @@index([createdAt])
+  @@map("users")
+}
+
+model Device {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pushToken  String   @unique
+  platform   String
+  appVersion String   @default("")
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@map("devices")
+}
+
+/* ------------------------- plans & subscriptions ------------------------ */
+
+model Plan {
+  id          String       @id @default(uuid())
+  code        PlanCode     @unique
+  name        String
+  tagline     String       @default("")
+  priceCents  Int
+  currency    String       @default("USD")
+  interval    PlanInterval @default(MONTH)
+  paymentMode PaymentMode  @default(EXTERNAL)
+  features    Json         @default("[]")
+  isActive    Boolean      @default(true)
+  sortOrder   Int          @default(0)
+
+  // Product identifiers used only when paymentMode allows IAP.
+  iapProductIdIos     String?
+  iapProductIdAndroid String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  subscriptions Subscription[]
+  payments      Payment[]
+
+  @@map("plans")
+}
+
+model Subscription {
+  id       String             @id @default(uuid())
+  userId   String
+  user     User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId   String
+  plan     Plan               @relation(fields: [planId], references: [id])
+  status   SubscriptionStatus @default(PENDING)
+
+  startedAt DateTime  @default(now())
+  // Null means a one-time purchase that never lapses (the coaching tiers).
+  expiresAt DateTime?
+  cancelledAt DateTime?
+
+  provider   PaymentProviderCode?
+  externalId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+  @@index([expiresAt])
+  @@map("subscriptions")
+}
+
+model Payment {
+  id       String              @id @default(uuid())
+  userId   String
+  user     User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId   String
+  plan     Plan                @relation(fields: [planId], references: [id])
+  provider PaymentProviderCode
+  status   PaymentStatus       @default(PENDING)
+
+  amountCents Int
+  currency    String @default("USD")
+
+  // Provider's own id: Stripe session, crypto invoice, or IAP transaction.
+  providerRef String?
+  // Bank reference or on-chain tx hash supplied by the user.
+  reference   String?
+  // Screenshot of a transfer, for the manual approval queue.
+  proofUrl    String?
+
+  reviewedById String?
+  reviewedBy   User?     @relation("PaymentReviewer", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+  reviewNote   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([providerRef])
+  @@map("payments")
+}
+
+/* ------------------------------- signals -------------------------------- */
+
+model Signal {
+  id        String         @id @default(uuid())
+  symbol    String
+  direction TradeDirection
+  orderType OrderType      @default(MARKET)
+
+  entryLow  Float
+  entryHigh Float
+  sl        Float
+  tp1       Float?
+  tp2       Float?
+  tp3       Float?
+  beTrigger Float?
+  // Broker-specific override; null falls back to the instrument default.
+  pipSize   Float?
+
+  timeframe   String  @default("H1")
+  riskPercent Float?
+  analysisText String @default("")
+
+  // Derived on write from the raw levels so the feed, the admin panel and the
+  // Telegram message can never disagree about a signal's risk:reward.
+  slPips     Float?
+  plannedRR  Float?
+  resultPips Float?
+
+  // Status is recomputed from the update ledger on every write.
+  status  SignalStatus @default(DRAFT)
+  minPlan PlanCode     @default(SIGNALS)
+
+  authorId String?
+  author   User?   @relation(fields: [authorId], references: [id])
+  // Set when a signal arrives from the MT5 bridge rather than the composer.
+  sourceKeyId String?
+
+  publishedAt DateTime?
+  closedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  updates  SignalUpdate[]
+  images   MediaAsset[]
+  telegram TelegramMessage[]
+
+  @@index([status, publishedAt])
+  @@index([symbol])
+  @@index([minPlan])
+  @@map("signals")
+}
+
+// Append-only. The single source of truth for a signal's progress.
+model SignalUpdate {
+  id       String           @id @default(uuid())
+  signalId String
+  signal   Signal           @relation(fields: [signalId], references: [id], onDelete: Cascade)
+  type     SignalUpdateType
+  note     String           @default("")
+  // Fill or exit price, used to compute the realised pip result.
+  price      Float?
+  resultPips Float?
+  imageUrl   String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([signalId, createdAt])
+  @@map("signal_updates")
+}
+
+// API keys for the MT5 Expert Advisor bridge. Scoped and revocable so a
+// compromised VPS can be cut off without touching user auth.
+model IngestKey {
+  id         String    @id @default(uuid())
+  label      String
+  keyHash    String    @unique
+  isActive   Boolean   @default(true)
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@map("ingest_keys")
+}
+
+/* -------------------------------- media --------------------------------- */
+
+model MediaAsset {
+  id       String    @id @default(uuid())
+  type     MediaType @default(IMAGE)
+  provider String    @default("S3")
+  key      String
+  url      String
+  width    Int?
+  height   Int?
+  bytes    Int?
+  // Watermarked derivative shown publicly; the original stays private.
+  brandedUrl   String?
+  thumbnailUrl String?
+
+  signalId String?
+  signal   Signal? @relation(fields: [signalId], references: [id], onDelete: SetNull)
+
+  uploadedById String?
+  createdAt    DateTime @default(now())
+
+  @@index([signalId])
+  @@map("media_assets")
+}
+
+/* -------------------------------- academy ------------------------------- */
+
+model Course {
+  id          String      @id @default(uuid())
+  title       String
+  slug        String      @unique
+  description String      @default("")
+  level       CourseLevel @default(BEGINNER)
+  minPlan     PlanCode    @default(NORMAL)
+  coverUrl    String?
+  isPublished Boolean     @default(false)
+  sortOrder   Int         @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lessons Lesson[]
+
+  @@index([isPublished, sortOrder])
+  @@map("courses")
+}
+
+model Lesson {
+  id          String  @id @default(uuid())
+  courseId    String
+  course      Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title       String
+  description String  @default("")
+
+  // Cloudflare Stream UID. Never serialised to a client without entitlement —
+  // possession of the UID is enough to fetch the video, so it is treated as a
+  // secret and exchanged for a short-lived signed token instead.
+  videoUid    String?
+  durationSec Int     @default(0)
+  order       Int     @default(0)
+  // A free preview is the funnel: it is the one lesson served without a plan.
+  isFreePreview Boolean @default(false)
+  attachments   Json    @default("[]")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  progress LessonProgress[]
+
+  @@index([courseId, order])
+  @@map("lessons")
+}
+
+model LessonProgress {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessonId   String
+  lesson     Lesson    @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  watchedSec Int       @default(0)
+  completedAt DateTime?
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([userId, lessonId])
+  @@index([userId])
+  @@map("lesson_progress")
+}
+
+/* ------------------------------- coaching -------------------------------- */
+
+model CoachingSession {
+  id        String         @id @default(uuid())
+  studentId String
+  student   User           @relation("StudentSessions", fields: [studentId], references: [id], onDelete: Cascade)
+  coachId   String?
+  coach     User?          @relation("CoachSessions", fields: [coachId], references: [id])
+  status    CoachingStatus @default(REQUESTED)
+
+  scheduledAt DateTime
+  durationMin Int      @default(60)
+  topic       String   @default("")
+  notes       String   @default("")
+
+  // Provisioned per session; only the student and coach receive join tokens.
+  roomName String?
+  roomUrl  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([studentId, scheduledAt])
+  @@index([coachId, scheduledAt])
+  @@map("coaching_sessions")
+}
+
+/* --------------------------------- ads ----------------------------------- */
+
+model AdPlacement {
+  id             String   @id @default(uuid())
+  slot           AdSlot   @unique
+  network        String   @default("ADMOB")
+  unitIdIos      String   @default("")
+  unitIdAndroid  String   @default("")
+  isEnabled      Boolean  @default(true)
+  minIntervalSec Int      @default(60)
+  // Suppression is server-side: the client is told which slots to render, so a
+  // paying subscriber cannot be shown ads by a stale or patched build.
+  hideForPlans   PlanCode[] @default([PRO, ULTRA])
+
+  updatedAt DateTime @updatedAt
+
+  @@map("ad_placements")
+}
+
+/* -------------------------------- links ---------------------------------- */
+
+model AppLink {
+  id        String       @id @default(uuid())
+  label     String
+  url       String
+  icon      String       @default("link")
+  category  LinkCategory @default(SOCIAL)
+  sortOrder Int          @default(0)
+  isActive  Boolean      @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clicks LinkClick[]
+
+  @@index([isActive, sortOrder])
+  @@map("app_links")
+}
+
+model LinkClick {
+  id        String   @id @default(uuid())
+  linkId    String
+  link      AppLink  @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  platform  String   @default("")
+  createdAt DateTime @default(now())
+
+  @@index([linkId, createdAt])
+  @@map("link_clicks")
+}
+
+/* --------------------------- push & telegram ------------------------------ */
+
+model PushCampaign {
+  id            String     @id @default(uuid())
+  title         String
+  body          String
+  deepLink      String     @default("")
+  audiencePlans PlanCode[] @default([])
+  scheduledAt   DateTime?
+  sentAt        DateTime?
+  sentCount     Int        @default(0)
+  failedCount   Int        @default(0)
+  createdById   String?
+  createdAt     DateTime   @default(now())
+
+  @@index([scheduledAt])
+  @@map("push_campaigns")
+}
+
+// Lets the bot edit the original message as a trade progresses instead of
+// posting a new one, so a channel reads as one live thread per trade.
+model TelegramMessage {
+  id        String   @id @default(uuid())
+  signalId  String
+  signal    Signal   @relation(fields: [signalId], references: [id], onDelete: Cascade)
+  chatId    BigInt
+  messageId Int
+  // Whether this copy was rendered with levels hidden (free-tier teaser).
+  locked    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([signalId, chatId])
+  @@map("telegram_messages")
+}
+
+/* -------------------------------- audit ---------------------------------- */
+
+model AuditLog {
+  id       String  @id @default(uuid())
+  actorId  String?
+  actor    User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action   String
+  entity   String
+  entityId String?
+  before   Json?
+  after    Json?
+  ip       String?
+
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}

@@ -1,0 +1,27 @@
+node_modules/
+dist/
+build/
+.next/
+.turbo/
+.expo/
+*.tsbuildinfo
+coverage/
+
+# env
+.env
+.env.*
+!.env.example
+
+# native
+ios/
+android/
+*.keystore
+*.p8
+*.p12
+*.mobileprovision
+
+# local data
+infra/data/
+uploads/
+*.log
+.DS_Store
