@@ -37,20 +37,48 @@ as a scratch, not a loss — see `packages/shared/src/signal-state.ts`.
 ## Getting started
 
 ```bash
+./start.sh
+```
+
+That is the whole thing. It installs packages, starts Postgres and Redis
+(Docker if you have it, system services if you don't), runs migrations, seeds an
+empty database, builds, and brings up the API and admin panel — then prints the
+URLs and your login.
+
+```
+./start.sh --status     what is running
+./start.sh --logs       tail the API log
+./start.sh --stop       stop the API and admin panel
+./start.sh --reset-db   drop and rebuild the database, then start
+```
+
+| | |
+|---|---|
+| Admin panel | http://localhost:3001 |
+| API | http://localhost:3000/api |
+| API docs | http://localhost:3000/api/docs |
+
+The mobile app runs separately, since it needs a device or simulator:
+
+```bash
+pnpm --filter @tsp/mobile start          # Expo dev server — scan with Expo Go
+pnpm --filter @tsp/mobile run android    # build to a connected device
+```
+
+<details>
+<summary>Running the pieces by hand</summary>
+
+```bash
 pnpm install
-
-# Postgres + Redis (see infra/README.md for a no-Docker path)
-docker compose -f infra/docker-compose.yml up -d
-
+docker compose -f infra/docker-compose.yml up -d   # or see infra/README.md
 cp apps/api/.env.example apps/api/.env
 pnpm --filter @tsp/shared build
 pnpm --filter @tsp/api db:migrate
 pnpm --filter @tsp/api db:seed     # prints the admin login and MT5 ingest key
-
-pnpm --filter @tsp/api dev         # :3000  — docs at /api/docs
+pnpm --filter @tsp/api dev         # :3000
 pnpm --filter @tsp/admin dev       # :3001
-pnpm --filter @tsp/mobile start
 ```
+</details>
 
 ## Tests
 
