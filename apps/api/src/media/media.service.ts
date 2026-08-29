@@ -82,19 +82,28 @@ export class MediaService {
     brand: { symbol: string; direction: string },
     width: number,
   ): Promise<Buffer> {
-    const barHeight = Math.max(48, Math.round(width * 0.06));
+    // Bar height scales with the image but is clamped, so the caption stays
+    // readable on a phone screenshot without swallowing a small one.
+    const barHeight = Math.min(Math.max(28, Math.round(width * 0.06)), 96);
     const fontSize = Math.round(barHeight * 0.42);
+    const padding = Math.round(barHeight * 0.35);
     const accent = brand.direction === 'BUY' ? '#16a34a' : '#dc2626';
 
+    // The symbol is anchored left and the direction right, rather than the
+    // direction being placed at an estimated character width after the symbol.
+    // That estimate was wrong for any font it did not assume, so a long symbol
+    // on a narrow image overlapped the edge and clipped.
     const svg = Buffer.from(
       `<svg width="${width}" height="${barHeight}" xmlns="http://www.w3.org/2000/svg">
          <rect width="100%" height="100%" fill="#0b1220" fill-opacity="0.92"/>
          <rect width="6" height="100%" fill="${accent}"/>
-         <text x="${Math.round(barHeight * 0.4)}" y="${Math.round(barHeight * 0.63)}"
+         <text x="${padding}" y="${Math.round(barHeight * 0.68)}"
                font-family="Helvetica, Arial, sans-serif" font-size="${fontSize}"
-               font-weight="700" fill="#ffffff">${escapeXml(brand.symbol)}</text>
-         <text x="${Math.round(barHeight * 0.4) + fontSize * brand.symbol.length * 0.62}"
-               y="${Math.round(barHeight * 0.63)}"
+               font-weight="700" fill="#ffffff"
+               textLength="${Math.min(width * 0.5, fontSize * brand.symbol.length * 0.7)}"
+               lengthAdjust="spacingAndGlyphs">${escapeXml(brand.symbol)}</text>
+         <text x="${width - padding}" y="${Math.round(barHeight * 0.68)}"
+               text-anchor="end"
                font-family="Helvetica, Arial, sans-serif" font-size="${fontSize}"
                font-weight="700" fill="${accent}">${escapeXml(brand.direction)}</text>
        </svg>`,

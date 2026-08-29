@@ -44,6 +44,7 @@ export class StorageService {
     if (!this.s3) {
       const path = join(this.localRoot, key);
       await mkdir(join(path, '..'), { recursive: true });
+
       await writeFile(path, body);
       return `${this.config.get('apiPublicUrl', { infer: true })}/uploads/${key}`;
     }
