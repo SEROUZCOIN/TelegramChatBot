@@ -93,6 +93,19 @@ rather than today, that a one-time coaching purchase never lapses, and that a
 locked signal's levels are *absent* from the serialised payload rather than
 merely flagged.
 
+## Going live
+
+```bash
+./preflight.sh
+```
+
+Checks every credential and reports what is ready, what is missing, and what
+each gap costs you — making a real authenticated call to each provider, so a
+mistyped key reads as broken rather than green. Non-zero exit while any launch
+blocker stands, so it can gate a deploy.
+
+[`docs/GO-LIVE.md`](docs/GO-LIVE.md) is the ordered runbook that goes with it.
+
 ## Before you submit to either store
 
 Read [`docs/COMPLIANCE.md`](docs/COMPLIANCE.md) first. It is not optional

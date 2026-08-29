@@ -45,6 +45,32 @@ pnpm --filter @tsp/api db:deploy   # migrate deploy — never `migrate dev` in p
 node apps/api/dist/main.js
 ```
 
+`migrate dev` is interactive and will offer to **reset the database** when it
+finds drift. `migrate deploy` only applies pending migrations and never drops
+anything, which is the only safe choice against real customer data.
+
+Gate the deploy on readiness:
+
+```bash
+./preflight.sh --quiet || exit 1
+```
+
+It exits non-zero while any launch blocker stands, so a misconfigured
+environment fails the pipeline instead of reaching customers.
+
+### Run exactly one API instance while Telegram polls
+
+`TELEGRAM_USE_POLLING=true` means the process long-polls Telegram for updates.
+Two instances both poll, and **every subscriber receives every signal twice**.
+Until you switch to webhooks, keep the API at one replica — this is the single
+easiest way to embarrass yourself in front of paying subscribers.
+
+### Health check
+
+Point your load balancer at `GET /api/plans`. It is public, cheap, and touches
+the database, so it fails when the thing that actually matters is broken —
+unlike a static `/health` that returns 200 from a process with no database.
+
 ### Webhooks to register
 
 | Provider | Endpoint |

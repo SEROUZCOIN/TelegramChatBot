@@ -1,21 +1,36 @@
 {
   "cli": { "version": ">= 5.9.0", "appVersionSource": "remote" },
+
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "env": { "EXPO_PUBLIC_API_URL": "http://localhost:3000/api" }
+      "env": {
+        "EXPO_PUBLIC_API_URL": "http://localhost:3000/api",
+        "APP_BUNDLE_ID": "com.example.signalsacademy.dev",
+        "APP_NAME": "Signals Academy (dev)"
+      }
     },
+
     "preview": {
       "distribution": "internal",
       "android": { "buildType": "apk" },
-      "env": { "EXPO_PUBLIC_API_URL": "https://staging-api.example.com/api" }
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://staging-api.example.com/api",
+        "APP_BUNDLE_ID": "com.example.signalsacademy.staging",
+        "APP_NAME": "Signals Academy (staging)"
+      }
     },
+
     "production": {
       "autoIncrement": true,
-      "env": { "EXPO_PUBLIC_API_URL": "https://api.example.com/api" }
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.example.com/api",
+        "APP_BUNDLE_ID": "com.example.signalsacademy"
+      }
     }
   },
+
   "submit": {
     "production": {
       "ios": {
