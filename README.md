@@ -36,20 +36,21 @@ as a scratch, not a loss — see `packages/shared/src/signal-state.ts`.
 
 ## Getting started
 
+You need Node.js 20+ and nothing else. The database is a free hosted Postgres
+you paste a URL for; the launcher asks you for it and remembers it.
+
 ```bash
-./start.sh
+node run.js
 ```
 
-That is the whole thing. It installs packages, starts Postgres and Redis
-(Docker if you have it, system services if you don't), runs migrations, seeds an
-empty database, builds, and brings up the API and admin panel — then prints the
-URLs and your login.
+That installs packages (pnpm arrives through corepack, which ships inside
+Node), sets up the database, builds, and starts the API and admin panel.
 
 ```
-./start.sh --status     what is running
-./start.sh --logs       tail the API log
-./start.sh --stop       stop the API and admin panel
-./start.sh --reset-db   drop and rebuild the database, then start
+node run.js --status     what is running
+node run.js --logs       follow the API log
+node run.js --stop       stop the servers
+node run.js --reset-db   drop and rebuild the database, then start
 ```
 
 | | |
@@ -57,6 +58,9 @@ URLs and your login.
 | Admin panel | http://localhost:3001 |
 | API | http://localhost:3000/api |
 | API docs | http://localhost:3000/api/docs |
+
+**On Windows?** [`docs/WINDOWS.md`](docs/WINDOWS.md) walks through it from
+installing Node, written for a first dev setup.
 
 The mobile app runs separately, since it needs a device or simulator:
 
@@ -66,18 +70,12 @@ pnpm --filter @tsp/mobile run android    # build to a connected device
 ```
 
 <details>
-<summary>Running the pieces by hand</summary>
+<summary>Running your own Postgres instead</summary>
 
-```bash
-pnpm install
-docker compose -f infra/docker-compose.yml up -d   # or see infra/README.md
-cp apps/api/.env.example apps/api/.env
-pnpm --filter @tsp/shared build
-pnpm --filter @tsp/api db:migrate
-pnpm --filter @tsp/api db:seed     # prints the admin login and MT5 ingest key
-pnpm --filter @tsp/api dev         # :3000
-pnpm --filter @tsp/admin dev       # :3001
-```
+Set `DATABASE_URL` in `apps/api/.env` to any Postgres and the launcher will use
+it. `infra/docker-compose.yml` brings one up locally if you have Docker, and
+`infra/README.md` covers installing it directly.
+
 </details>
 
 ## Tests
@@ -85,7 +83,14 @@ pnpm --filter @tsp/admin dev       # :3001
 ```bash
 pnpm --filter @tsp/shared test     # 47 — state machine, pip math, entitlements
 pnpm --filter @tsp/api test        # 12 — entitlement grants, locked-payload leakage
+node --test "test/**/*.test.mjs"   #  7 — the launcher's Windows branches
 ```
+
+The launcher tests force `process.platform` to `win32` so the Windows-only code
+paths can be checked from any machine. They matter because those branches fail
+silently elsewhere: without `shell: true` Node cannot find `pnpm.cmd`, and
+killing a bare pid rather than the process tree leaves a server running while
+the launcher reports success.
 
 The API suite runs against a real Postgres, because the behaviour worth testing
 there is transactional: that an early renewal extends from the existing expiry
