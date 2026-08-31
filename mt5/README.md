@@ -46,3 +46,21 @@ the server or the composer.
   rather than decoration: the platform scores a later stop-out *after* a
   break-even move as a scratch rather than a loss, so the published win rate
   stays honest.
+
+---
+
+## Also in this folder: `FibBot/`
+
+[`FibBot/`](FibBot/README.md) is the other direction — an Expert Advisor that
+*finds* setups rather than reporting yours. It detects non-repainting swing
+pivots, arms a Fibonacci retracement setup only when independent non-Fibonacci
+confluence agrees, waits for a confirmation close, and posts the result through
+this same `signalInputSchema` contract. Execution is opt-in and off by default,
+so out of the box it analyses and publishes without ever sending an order.
+
+Because a retracement setup has a real entry *zone*, it is the first caller to
+use `entryLow`/`entryHigh` as the range the schema always allowed — where this
+bridge, reporting a fill, can only collapse them to one price.
+
+The method it implements, and the evidence for and against it, is
+[`docs/education/fibonacci-retracement.md`](../docs/education/fibonacci-retracement.md).
