@@ -46,3 +46,19 @@ the server or the composer.
   rather than decoration: the platform scores a later stop-out *after* a
   break-even move as a scratch rather than a loss, so the published win rate
   stays honest.
+
+---
+
+## Also in this folder: `FibBot/`
+
+[`FibBot/`](FibBot/README.md) is a standalone Expert Advisor that *finds* setups
+rather than reporting yours. It detects non-repainting swing pivots, arms a
+Fibonacci retracement setup only when independent non-Fibonacci confluence
+agrees, waits for a confirmation close, then draws it and — if you switch
+execution on — trades it.
+
+It is unrelated to this bridge and talks to nothing: no API, no ingest key, no
+WebRequest whitelisting. The two can run side by side on different symbols.
+
+The method it implements, and the evidence for and against it, is
+[`docs/education/fibonacci-retracement.md`](../docs/education/fibonacci-retracement.md).
