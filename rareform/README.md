@@ -97,8 +97,11 @@ in front of it before this goes anywhere public.
 
 ## Deploying
 
-See [DEPLOY.md](DEPLOY.md) — `npm run build` produces a static `dist/`, and `vercel.json`
-and `netlify.toml` are already set up. The same file covers pointing a custom domain at it.
+See [DEPLOY.md](DEPLOY.md). `npm run build` produces a static `dist/`; Cloudflare Pages
+config (`wrangler.toml`, `public/_headers`, `public/_redirects`) and a GitHub Actions
+deploy workflow are committed, with `vercel.json` and `netlify.toml` as alternatives.
+The same file covers custom-domain DNS and embedding the shop in another site
+via `?embed=1`.
 
 ## Notes
 

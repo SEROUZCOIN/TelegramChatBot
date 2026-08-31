@@ -112,7 +112,7 @@ export default function Viewer3D({
       // A per-frame counter has no business in React state — write it straight
       // to the node, so a heavy frame can never stall the update.
       if (state.fpsAccum > 700) {
-        if (fpsRef.current) fpsRef.current.textContent = String(Math.round(1000 / (state.fpsAccum / state.fpsCount)))
+        if (fpsRef.current) fpsRef.current.textContent = String(Math.max(1, Math.round(1000 / (state.fpsAccum / state.fpsCount))))
         state.fpsAccum = 0
         state.fpsCount = 0
       }

@@ -679,6 +679,12 @@ table.size th { font-family: var(--font-mono); font-size: 9.5px; letter-spacing:
   .card__quick { opacity: 1; transform: none; }
 }
 
+/* Embedded in another site: the host page owns the scroll, so the header stops
+   sticking and the hero gives back some height. */
+[data-embed='true'] .header { position: static; }
+[data-embed='true'] .hero__grid { min-height: 0; padding-block: 32px 28px; }
+[data-embed='true'] .shop { padding-block: 24px 40px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.001ms !important; animation-iteration-count: 1 !important;

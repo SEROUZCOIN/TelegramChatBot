@@ -1,0 +1,16 @@
+# Cloudflare Pages reads this file from the build output.
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), microphone=(), camera=()
+  # Open framing so the storefront can be embedded in another site.
+  # Tighten this to `frame-ancestors https://your-site.example` once you know
+  # which sites should be allowed to embed it.
+  Content-Security-Policy: frame-ancestors *
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/rareform.html
+  Cache-Control: public, max-age=300

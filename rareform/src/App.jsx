@@ -22,6 +22,11 @@ function initialTheme() {
   return stated === 'light' || stated === 'dark' ? stated : 'dark'
 }
 
+// `?embed=1` trims the page furniture so the shop sits cleanly inside another
+// site's iframe: no marquee, no footer, and the header loses its own sticking.
+const EMBEDDED = new URLSearchParams(window.location.search).get('embed') === '1'
+if (EMBEDDED) document.documentElement.dataset.embed = 'true'
+
 export default function App() {
   const { products: PRODUCTS, studio, placeOrder } = useShop()
   const searchIndex = useMemo(() => buildIndex(PRODUCTS), [PRODUCTS])
@@ -236,7 +241,7 @@ export default function App() {
                   onShop={() => document.getElementById('index')?.scrollIntoView({ behavior: 'smooth' })}
                   onOpenProduct={openProduct} studio={studio}
                 />
-                <Marquee />
+                {!EMBEDDED && <Marquee />}
                 <section className="shell section" style={{ paddingBottom: 0 }}>
                   <div className="section__head">
                     <div>
@@ -329,11 +334,13 @@ export default function App() {
         )}
       </main>
 
-      <Footer
-        onCategory={id => goShop({ categories: [id] })}
-        onCollection={id => goShop({ collections: [id] })}
-        onAdmin={() => setMode('admin')}
-      />
+      {!EMBEDDED && (
+        <Footer
+          onCategory={id => goShop({ categories: [id] })}
+          onCollection={id => goShop({ collections: [id] })}
+          onAdmin={() => setMode('admin')}
+        />
+      )}
 
       <CartDrawer
         open={cartOpen} lines={cartLines} onClose={() => setCartOpen(false)}

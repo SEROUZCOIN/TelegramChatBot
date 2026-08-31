@@ -1,0 +1,68 @@
+name: RAREFORM — build and deploy
+
+# Builds the storefront on every push that touches it, and publishes to
+# Cloudflare Pages when the account secrets are present. Without those secrets
+# the job still builds and passes, and says what is missing.
+
+on:
+  push:
+    paths:
+      - 'rareform/**'
+      - '.github/workflows/deploy-rareform.yml'
+  pull_request:
+    paths:
+      - 'rareform/**'
+  workflow_dispatch:
+
+concurrency:
+  group: rareform-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rareform
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: rareform/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Build single-file bundle
+        run: npm run bundle
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: rareform-dist
+          path: rareform/dist
+          retention-days: 14
+
+      - name: Cloudflare Pages not configured
+        if: env.CLOUDFLARE_API_TOKEN == '' || env.CLOUDFLARE_ACCOUNT_ID == ''
+        run: |
+          echo "::notice title=Deploy skipped::Add the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets to publish this build to Cloudflare Pages. See rareform/DEPLOY.md."
+
+      - name: Deploy to Cloudflare Pages
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: rareform
+          command: pages deploy dist --project-name=rareform --branch=${{ github.ref_name }}

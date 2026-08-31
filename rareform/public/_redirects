@@ -1,0 +1,3 @@
+# The storefront keeps its state in memory rather than in the URL, so every
+# path resolves to the same document.
+/*  /index.html  200

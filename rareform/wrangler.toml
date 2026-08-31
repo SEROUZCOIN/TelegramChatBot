@@ -1,0 +1,5 @@
+# Cloudflare Pages project config. `npm run build` writes dist/, which is all
+# Pages needs — there is no server side to this site.
+name = "rareform"
+compatibility_date = "2026-01-01"
+pages_build_output_dir = "dist"
