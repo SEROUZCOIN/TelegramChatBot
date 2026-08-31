@@ -35,10 +35,35 @@ suggestions, recent searches and keyboard navigation.
 except its own dimension, so the number beside a filter is what you would actually get by
 selecting it. Filters, sort, chips, bag, wishlist and theme all persist to local storage.
 
-**The rest of the shop.** Product pages with a draggable viewer and four studio lighting
-presets, size guides per size system, quick-add from the grid, a bag drawer with
-free-shipping progress and promo codes, a three-step demo checkout, light and dark themes,
-and a mobile layout where the filter rail becomes a sheet.
+**A spatial viewer, not a spinner.** Product pages sit in a lit void with a receding
+grid floor and bloom post-processing, and carry a live telemetry read-out — triangle
+count, frame rate, shading mode. **X-ray** drops the garment to wireframe so you can see
+how it is actually constructed: the hood panels, the sleeve loft, the pocket, the yoke.
+Five scene presets: Studio, Obsidian, Daylight, Hologram, Noir.
+
+**The rest of the shop.** Size guides per size system, quick-add from the grid, a bag
+drawer with free-shipping progress and promo codes, a three-step demo checkout, light and
+dark themes, and a mobile layout where the filter rail becomes a sheet.
+
+**An admin panel wired to all of it.** Sign in from the header. Seven sections:
+
+- **Overview** — revenue, orders, average order value and refunds, a 28-day revenue chart
+  with the current week called out, low-stock alerts and top garments by revenue.
+- **Products** — the full catalogue with search and category filter. The editor renders
+  the garment it is describing, live: change the model, fit, fabric or a colourway hex and
+  the 3D preview rebuilds as you type. Create, edit and delete.
+- **Orders** — expandable line items, status pipeline from Pending through Delivered.
+- **Inventory** — stock levels with adjustment controls and a low-stock filter.
+- **Customers** — ranked by lifetime spend.
+- **3D Studio** — scene presets for product pages and for catalogue cards, presentation
+  angle, exposure, bloom strength, grid floor and auto-rotate. Changing the card scene
+  clears the render cache so every card redraws at the new lighting.
+- **Settings** — store name, currency, shipping thresholds, returns window, low-stock
+  threshold and promo codes.
+
+Admin and storefront share one store, so a rename, a price change, a new colourway, a
+currency switch or a promo code lands on the shop immediately. Checkout writes a real
+order into the admin panel and decrements stock.
 
 ## Layout
 
@@ -47,12 +72,33 @@ and a mobile layout where the filter rail becomes a sheet.
 | `src/three/loft.js` | Superellipse lofting, path lofting, cloth drape displacement |
 | `src/three/garments.js` | The 17 garment builders and the colourway recolour pass |
 | `src/three/materials.js` | Procedural fabric normal/roughness maps and material presets |
-| `src/three/studio.js` | Renderer, three-point lighting, scene presets, camera |
+| `src/three/studio.js` | Renderer, three-point lighting, five scene presets, backdrop, grid |
+| `src/three/effects.js` | Bloom composer, X-ray construction view, triangle counting |
 | `src/three/thumbnails.js` | Off-screen render queue and data-URL cache for cards |
 | `src/search/engine.js` | Tokenising, fuzzy scoring, facet counting, suggestions |
 | `src/data/catalog.js` | The catalogue — each product carries its own garment spec |
 | `src/components/` | Header, hero, grid, filters, product page, bag, palette, checkout |
-| `src/styles/app.css` | Design tokens and the full component system |
+| `src/store/ShopContext.jsx` | The single store behind both the shop and the admin panel |
+| `src/admin/` | Admin shell, the seven screens and the live product editor |
+| `src/styles/app.css` | Design tokens and the storefront component system |
+| `src/styles/admin.css` | The denser admin console layer |
+
+## Admin access
+
+Open it from the person icon in the header or **Admin control panel** in the footer.
+
+```
+admin@rareform.studio
+admin123
+```
+
+That check runs in the browser and guards nothing. Put real server-side authentication
+in front of it before this goes anywhere public.
+
+## Deploying
+
+See [DEPLOY.md](DEPLOY.md) — `npm run build` produces a static `dist/`, and `vercel.json`
+and `netlify.toml` are already set up. The same file covers pointing a custom domain at it.
 
 ## Notes
 

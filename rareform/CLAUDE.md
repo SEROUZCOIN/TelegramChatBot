@@ -2,8 +2,10 @@
 
 ## What this is
 
-A clothing marketplace front end where the product imagery is generated, not stored.
-React + Vite + three.js; no backend, no image assets.
+A clothing marketplace front end where the product imagery is generated, not stored,
+plus an admin panel that drives it. React + Vite + three.js; no backend, no image assets.
+
+Admin: `admin@rareform.studio` / `admin123` (browser-side only, guards nothing).
 
 ## Commands
 
@@ -35,6 +37,17 @@ cross-sections vertically, `loftAlongPath` sweeps one along a curve (sleeves, le
 hoods, straps), and `drapeCloth` displaces vertices along their normals with layered
 noise plus vertical folds.
 
+## How the store is wired
+
+`src/store/ShopContext.jsx` holds products, orders, customers, settings and render
+options, persisted to local storage. Both the storefront and `src/admin/` read from it,
+which is why an admin edit lands on the shop with no sync step. Nothing should import
+`PRODUCTS` from `src/data/catalog.js` directly at runtime — that is the seed only; read
+`useShop().products` instead, or admin edits will not show up.
+
+Studio settings reach the thumbnail renderer through `setThumbnailStudio()`, which drops
+the image cache when the card scene or presentation angle changes.
+
 ## Rules for changes here
 
 1. Do not add image files. If a product needs a look, express it as geometry, fabric or
@@ -52,6 +65,10 @@ noise plus vertical folds.
 7. Both themes are defined token-level: the bare `:root` block holds the light palette,
    and the dark palette is repeated in a `prefers-color-scheme` block and a
    `[data-theme='dark']` block. Never define a colour in only one of them.
+8. Per-frame values (frame rate, cursor read-outs) write to a DOM ref, never React
+   state — a heavy frame will starve the state update and the number stops moving.
+9. Bloom renders at half resolution on purpose. Full resolution is several times the
+   cost for no visible gain.
 
 ## Verifying a change
 

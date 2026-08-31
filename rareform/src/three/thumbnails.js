@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { buildGarment, recolorGarment, disposeGarment } from './garments.js'
-import { createRenderer, createStudioScene, createCamera, hasWebGL } from './studio.js'
+import { createRenderer, createStudioScene, createCamera, applyPreset, hasWebGL } from './studio.js'
 
 // Product cards are not photographs — each one is rendered off-screen by the
 // same WebGL pipeline as the product page, then cached as a data URL. Work is
@@ -12,6 +12,8 @@ const HEIGHT = 650
 let renderer = null
 let studio = null
 let camera = null
+let studioPreset = 'studio'
+let defaultAngle = -0.42
 const geometryCache = new Map()
 const imageCache = new Map()
 const pending = new Map()
@@ -36,7 +38,7 @@ function boot() {
   canvas.height = HEIGHT
   renderer = createRenderer(canvas, { alpha: true, antialias: true, dpr: Math.min(2, window.devicePixelRatio || 1) })
   renderer.setSize(WIDTH, HEIGHT, false)
-  studio = createStudioScene(renderer, 'studio')
+  studio = createStudioScene(renderer, studioPreset)
   camera = createCamera(WIDTH / HEIGHT)
   return true
 }
@@ -56,13 +58,25 @@ function garmentFor(spec) {
 }
 
 export function thumbnailKey(spec) {
-  return `${spec.kind}|${spec.fit}|${spec.fabric}|${spec.seed}|${spec.color}|${spec.accent ?? ''}|${spec.angle ?? 0}`
+  return [spec.kind, spec.fit, spec.fabric, spec.seed, spec.color, spec.accent ?? '',
+    spec.angle ?? defaultAngle, studioPreset].join('|')
+}
+
+// Admin render settings change how every card looks, so switching them drops the
+// image cache and lets the queue redraw at the new preset.
+export function setThumbnailStudio(preset, angle) {
+  const changed = preset !== studioPreset || angle !== defaultAngle
+  studioPreset = preset ?? studioPreset
+  defaultAngle = angle ?? defaultAngle
+  if (!changed) return
+  imageCache.clear()
+  if (studio) applyPreset(studio, studioPreset)
 }
 
 function renderNow(spec) {
   const garment = garmentFor(spec)
   recolorGarment(garment, { color: spec.color, accent: spec.accent })
-  garment.rotation.set(0, spec.angle ?? -0.42, 0)
+  garment.rotation.set(0, spec.angle ?? defaultAngle, 0)
 
   studio.scene.add(garment)
   renderer.render(studio.scene, camera)

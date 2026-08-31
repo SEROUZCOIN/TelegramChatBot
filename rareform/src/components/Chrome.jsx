@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import Viewer3D from './Viewer3D.jsx'
-import { CATEGORIES, CATEGORY_GROUPS, COLLECTIONS, DEPARTMENTS, PRODUCTS } from '../data/catalog.js'
+import { CATEGORIES, CATEGORY_GROUPS, COLLECTIONS, DEPARTMENTS } from '../data/catalog.js'
 import { garmentSpec } from '../data/catalog.js'
+import { useShop } from '../store/ShopContext.jsx'
 import { Icon } from '../lib/icons.jsx'
 
 export function Header({
   cartCount, wishCount, theme, onTheme, onSearch, onHome, onCategory, onCollection,
-  onDepartment, onCart, onWishlist, activeView,
+  onDepartment, onCart, onWishlist, onAdmin, activeView,
 }) {
+  const { products: PRODUCTS, settings } = useShop()
   const [menu, setMenu] = useState(null)
   const [mobileNav, setMobileNav] = useState(false)
   const holdRef = useRef(null)
@@ -25,7 +27,7 @@ export function Header({
     <header className="header" onMouseLeave={closeMenu}>
       <div className="shell header__bar">
         <button type="button" className="header__logo" onClick={onHome}>
-          RARE<span>·</span>FORM
+          {settings.storeName.slice(0, 4)}<span>·</span>{settings.storeName.slice(4) || 'FORM'}
         </button>
 
         <nav className="header__nav" aria-label="Primary">
@@ -60,6 +62,10 @@ export function Header({
         <button type="button" className="icon-btn" onClick={onWishlist} aria-label={`Wishlist, ${wishCount} saved`} aria-pressed={activeView === 'wishlist'}>
           <Icon name="heart" size={17} />
           {wishCount > 0 && <span className="badge-count">{wishCount}</span>}
+        </button>
+
+        <button type="button" className="icon-btn" onClick={onAdmin} aria-label="Open admin control panel">
+          <Icon name="user" size={17} />
         </button>
 
         <button type="button" className="icon-btn" onClick={onCart} aria-label={`Bag, ${cartCount} items`}>
@@ -157,17 +163,23 @@ export function Header({
 }
 
 const HERO_LOOKS = [
-  { id: PRODUCTS.find(p => p.name.startsWith('Monolith')).id, color: 0 },
-  { id: PRODUCTS.find(p => p.name.startsWith('Orbit')).id, color: 3 },
-  { id: PRODUCTS.find(p => p.name.startsWith('Vector')).id, color: 1 },
-  { id: PRODUCTS.find(p => p.name.startsWith('Runner')).id, color: 0 },
+  { id: 'rf-010', color: 0 },
+  { id: 'rf-016', color: 3 },
+  { id: 'rf-030', color: 1 },
+  { id: 'rf-035', color: 0 },
 ]
 
-export function Hero({ onShop, onOpenProduct }) {
+export function Hero({ onShop, onOpenProduct, studio }) {
+  const { products } = useShop()
   const [look, setLook] = useState(0)
-  const current = HERO_LOOKS[look]
-  const product = PRODUCTS.find(p => p.id === current.id)
-  const colorway = product.colorways[current.color]
+  // Fall back gracefully: the admin can rename or delete any of these.
+  const looks = HERO_LOOKS.map(entry => products.find(p => p.id === entry.id) ?? null)
+    .map((product, index) => (product ? { product, color: HERO_LOOKS[index].color } : null))
+    .filter(Boolean)
+  const pool = looks.length ? looks : products.slice(0, 4).map(product => ({ product, color: 0 }))
+  const current = pool[Math.min(look, pool.length - 1)]
+  const product = current.product
+  const colorway = product.colorways[Math.min(current.color, product.colorways.length - 1)]
 
   return (
     <section className="hero">
@@ -189,7 +201,7 @@ export function Hero({ onShop, onOpenProduct }) {
             </button>
           </div>
           <div className="hero__stats">
-            <div className="hero__stat"><strong>{PRODUCTS.length}</strong><span className="mono">Garments</span></div>
+            <div className="hero__stat"><strong>{products.length}</strong><span className="mono">Garments</span></div>
             <div className="hero__stat"><strong>{CATEGORIES.length}</strong><span className="mono">Categories</span></div>
             <div className="hero__stat"><strong>0</strong><span className="mono">Photographs</span></div>
             <div className="hero__stat"><strong>60s</strong><span className="mono">Returns window</span></div>
@@ -198,22 +210,21 @@ export function Hero({ onShop, onOpenProduct }) {
 
         <div className="hero__stage">
           <Viewer3D
-            spec={garmentSpec(product, colorway, -0.5)}
+            spec={garmentSpec(product, colorway, studio.angle)}
             label={`${product.name} in ${colorway.name}`}
-            autoRotate preset="obsidian" showHud={false}
+            autoRotate preset="hologram" showHud={false} showTelemetry
+            bloom={studio.bloom} bloomStrength={Math.max(0.5, studio.bloomStrength)}
+            grid={studio.grid} exposure={studio.exposure}
           />
           <div style={{ position: 'absolute', left: 12, bottom: 12, right: 12, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {HERO_LOOKS.map((entry, index) => {
-              const item = PRODUCTS.find(p => p.id === entry.id)
-              return (
-                <button
-                  key={entry.id} type="button" className="viewer__chip" aria-pressed={index === look}
-                  onClick={() => setLook(index)}
-                >
-                  {item.categoryLabel}
-                </button>
-              )
-            })}
+            {pool.map((entry, index) => (
+              <button
+                key={entry.product.id} type="button" className="viewer__chip" aria-pressed={index === look}
+                onClick={() => setLook(index)}
+              >
+                {entry.product.categoryLabel}
+              </button>
+            ))}
           </div>
         </div>
       </div>
@@ -235,7 +246,7 @@ export function Marquee() {
   )
 }
 
-export function Footer({ onCategory, onCollection }) {
+export function Footer({ onCategory, onCollection, onAdmin }) {
   return (
     <footer className="footer">
       <div className="shell">
@@ -270,6 +281,7 @@ export function Footer({ onCategory, onCollection }) {
               <li><button type="button">Returns</button></li>
               <li><button type="button">Size guide</button></li>
               <li><button type="button">Contact</button></li>
+              <li><button type="button" onClick={onAdmin}>Admin control panel</button></li>
             </ul>
           </div>
         </div>

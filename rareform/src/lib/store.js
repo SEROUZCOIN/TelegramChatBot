@@ -106,7 +106,11 @@ export function useReducedMotion() {
   return useMediaQuery('(prefers-reduced-motion: reduce)')
 }
 
-export const money = value =>
-  new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP', maximumFractionDigits: 0 }).format(value)
+// The active currency is a store setting, so formatting reads it at call time.
+let currency = 'GBP'
+export function setCurrency(next) { currency = next }
+
+export const money = (value, digits = 0) =>
+  new Intl.NumberFormat('en-GB', { style: 'currency', currency, maximumFractionDigits: digits }).format(value)
 
 export const lineKey = (productId, size, colorName) => `${productId}::${size}::${colorName}`

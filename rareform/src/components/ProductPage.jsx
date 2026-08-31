@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react'
 import Viewer3D from './Viewer3D.jsx'
 import ProductCard from './ProductCard.jsx'
 import SizeGuide from './SizeGuide.jsx'
-import { garmentSpec, PRODUCTS } from '../data/catalog.js'
+import { garmentSpec } from '../data/catalog.js'
+import { useShop } from '../store/ShopContext.jsx'
 import { money } from '../lib/store.js'
 import { Icon, Stars } from '../lib/icons.jsx'
 
@@ -27,6 +28,7 @@ function Accordion({ items }) {
 }
 
 export default function ProductPage({ product, initialColor = 0, wished, onWish, onAdd, onBack, onOpenProduct }) {
+  const { products, settings, studio } = useShop()
   const [colorIndex, setColorIndex] = useState(Math.min(initialColor, product.colorways.length - 1))
   const [size, setSize] = useState(product.sizeType === 'one' ? product.sizes[0] : null)
   const [qty, setQty] = useState(1)
@@ -34,12 +36,12 @@ export default function ProductPage({ product, initialColor = 0, wished, onWish,
   const [error, setError] = useState(false)
 
   const colorway = product.colorways[colorIndex]
-  const spec = garmentSpec(product, colorway, -0.42)
+  const spec = garmentSpec(product, colorway, studio.angle)
 
-  const related = useMemo(() => PRODUCTS
+  const related = useMemo(() => products
     .filter(p => p.id !== product.id && (p.category === product.category || p.tags.some(t => product.tags.includes(t))))
     .sort((a, b) => b.popularity - a.popularity)
-    .slice(0, 4), [product])
+    .slice(0, 4), [product, products])
 
   const submit = () => {
     if (!size) {
@@ -64,7 +66,12 @@ export default function ProductPage({ product, initialColor = 0, wished, onWish,
 
       <div className="pdp">
         <div className="pdp__stage">
-          <Viewer3D spec={spec} label={`${product.name} in ${colorway.name}`} autoRotate preset="studio" />
+          <Viewer3D
+            spec={spec} label={`${product.name} in ${colorway.name}`}
+            autoRotate={studio.autoRotate} preset={studio.preset} showTelemetry
+            bloom={studio.bloom} bloomStrength={studio.bloomStrength}
+            grid={studio.grid} exposure={studio.exposure}
+          />
         </div>
 
         <div>
@@ -143,8 +150,12 @@ export default function ProductPage({ product, initialColor = 0, wished, onWish,
 
           <div className="pdp__notes">
             <p className="pdp__note"><Icon name="cube" size={15} /> Rendered live in your browser — drag the model to inspect the cut, seams and drape from any angle.</p>
-            <p className="pdp__note"><Icon name="truck" size={15} /> Free shipping over £150. Delivered in 2–4 working days.</p>
-            <p className="pdp__note"><Icon name="refresh" size={15} /> 60-day returns, no questions.</p>
+            <p className="pdp__note">
+              <Icon name="truck" size={15} /> Free shipping over {money(settings.freeShippingOver)}. Delivered in 2–4 working days.
+            </p>
+            <p className="pdp__note">
+              <Icon name="refresh" size={15} /> {settings.returnsWindow}-day returns, no questions.
+            </p>
             {product.sustainable && <p className="pdp__note"><Icon name="leaf" size={15} /> Made with responsibly sourced materials.</p>}
           </div>
 
@@ -163,8 +174,9 @@ export default function ProductPage({ product, initialColor = 0, wished, onWish,
                 title: 'Shipping & returns',
                 body: (
                   <p>
-                    Standard shipping is free over £150, otherwise £8. Express next-day is £14.
-                    Returns are free within 60 days on unworn pieces with tags attached.
+                    Standard shipping is free over {money(settings.freeShippingOver)}, otherwise{' '}
+                    {money(settings.standardShipping)}. Returns are free within {settings.returnsWindow} days
+                    on unworn pieces with tags attached.
                   </p>
                 ),
               },

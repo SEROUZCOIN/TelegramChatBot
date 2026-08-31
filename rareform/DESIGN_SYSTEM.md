@@ -65,6 +65,23 @@ updates through a polite live region.
 **Overlays** — the palette, bag, size guide and checkout are dialogs: they trap focus,
 close on Escape, lock background scroll and return focus to their opener.
 
-**The 3D stage** — a `--stage` gradient behind every render, in both themes, so a
-transparent garment render sits on a consistent ground. HUD chips float over the canvas
-with a blurred surface and never cover the garment's centre.
+**The 3D stage** — catalogue cards render transparent onto a `--stage` gradient, in both
+themes. The interactive viewer instead gets an opaque backdrop, a receding grid floor and
+bloom, so it reads as a lit space rather than a cut-out. HUD chips float over the canvas
+with a blurred surface and never cover the garment's centre; telemetry sits top-right.
+
+**X-ray** — the construction view is not decoration. It drops the garment to wireframe at
+62% opacity and hides the interior panels, which is the only way to see how a piece is
+actually built. Treat it as a product feature, not an effect.
+
+## Admin console
+
+The console runs the same tokens at a tighter rhythm: 13px body, 10px monospace labels,
+`--radius-lg` panels on `--bg-sunken`. Rules that hold there:
+
+- Numbers that stack in a column are `tabular-nums` and right-aligned.
+- State is a shape as well as a colour — order status is a pill with a dot, low stock adds
+  a `Low` tag beside the red bar.
+- Every destructive control says what it removes, and reset explains what it restores.
+- The product editor puts the live render beside the form, never behind a preview button:
+  the point is watching the garment change as you type.

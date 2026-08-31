@@ -6,14 +6,14 @@ import FilterRail from './components/FilterRail.jsx'
 import CartDrawer from './components/CartDrawer.jsx'
 import CommandPalette from './components/CommandPalette.jsx'
 import Checkout from './components/Checkout.jsx'
-import { CATEGORIES, COLLECTIONS, PRICE_BOUNDS, PRODUCTS } from './data/catalog.js'
+import AdminApp from './admin/AdminApp.jsx'
+import { CATEGORIES, COLLECTIONS, PRICE_BOUNDS } from './data/catalog.js'
 import { buildIndex, runSearch, DEFAULT_FILTERS, SORT_OPTIONS } from './search/engine.js'
 import { prefetchThumbnails } from './three/thumbnails.js'
 import { garmentSpec } from './data/catalog.js'
+import { useShop } from './store/ShopContext.jsx'
 import { usePersistentState, useToasts, useMediaQuery, lineKey, money } from './lib/store.js'
 import { Icon } from './lib/icons.jsx'
-
-const searchIndex = buildIndex(PRODUCTS)
 
 // When this page is embedded somewhere that states a theme, follow it on first
 // load. Otherwise the house style is dark.
@@ -23,7 +23,10 @@ function initialTheme() {
 }
 
 export default function App() {
+  const { products: PRODUCTS, studio, placeOrder } = useShop()
+  const searchIndex = useMemo(() => buildIndex(PRODUCTS), [PRODUCTS])
   const [theme, setTheme] = usePersistentState('rf.theme', initialTheme)
+  const [mode, setMode] = useState('store')
   const [view, setView] = useState({ name: 'shop' })
   const [query, setQuery] = useState('')
   const [filters, setFilters] = useState(DEFAULT_FILTERS)
@@ -42,7 +45,7 @@ export default function App() {
 
   const { results, facets, hasQuery } = useMemo(
     () => runSearch(searchIndex, { query, filters, sort }),
-    [query, filters, sort],
+    [searchIndex, query, filters, sort],
   )
 
   // Warm the first screen of renders so the grid is not blank on arrival.
@@ -132,7 +135,7 @@ export default function App() {
     if (!product) return null
     const colorway = product.colorways.find(cw => cw.name === line.colorName) ?? product.colorways[0]
     return { ...line, product, colorway }
-  }).filter(Boolean), [cart])
+  }).filter(Boolean), [cart, PRODUCTS])
 
   const cartCount = cartLines.reduce((sum, line) => sum + line.qty, 0)
 
@@ -148,6 +151,23 @@ export default function App() {
   const wishProducts = PRODUCTS.filter(p => wishlist.includes(p.id))
   const showHero = view.name === 'shop' && !hasQuery && activeFilterChips.length === 0
   const product = view.name === 'product' ? PRODUCTS.find(p => p.id === view.id) : null
+
+  if (mode === 'admin') {
+    return (
+      <>
+        <AdminApp onExit={() => setMode('store')} notify={push} />
+        <div className="toasts">
+          {toasts.map(toast => (
+            <div className="toast" key={toast.id} role="status">
+              <Icon name="check" size={15} strokeWidth={2.4} />
+              <span>{toast.message}</span>
+              <button type="button" onClick={() => dismiss(toast.id)}>Dismiss</button>
+            </div>
+          ))}
+        </div>
+      </>
+    )
+  }
 
   return (
     <>
@@ -166,6 +186,7 @@ export default function App() {
         onDepartment={dep => goShop({ departments: [dep] })}
         onCart={() => setCartOpen(true)}
         onWishlist={() => setView({ name: 'wishlist' })}
+        onAdmin={() => setMode('admin')}
       />
 
       <main id="main">
@@ -211,7 +232,10 @@ export default function App() {
           <>
             {showHero && (
               <>
-                <Hero onShop={() => document.getElementById('index')?.scrollIntoView({ behavior: 'smooth' })} onOpenProduct={openProduct} />
+                <Hero
+                  onShop={() => document.getElementById('index')?.scrollIntoView({ behavior: 'smooth' })}
+                  onOpenProduct={openProduct} studio={studio}
+                />
                 <Marquee />
                 <section className="shell section" style={{ paddingBottom: 0 }}>
                   <div className="section__head">
@@ -308,6 +332,7 @@ export default function App() {
       <Footer
         onCategory={id => goShop({ categories: [id] })}
         onCollection={id => goShop({ collections: [id] })}
+        onAdmin={() => setMode('admin')}
       />
 
       <CartDrawer
@@ -331,7 +356,11 @@ export default function App() {
       <Checkout
         open={checkout !== null} total={checkout ?? 0}
         onClose={() => setCheckout(null)}
-        onComplete={() => { setCart([]); push('Order placed — demo only, nothing shipped.') }}
+        onComplete={() => {
+          const order = placeOrder(cartLines, checkout ?? 0)
+          setCart([])
+          push(`Order ${order.id} placed — visible in the admin panel.`)
+        }}
       />
 
       <div className="toasts">

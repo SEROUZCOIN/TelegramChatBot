@@ -13,6 +13,9 @@ export const SCENE_PRESETS = {
     ambient: 0.55,
     exposure: 1.0,
     ground: 0.3,
+    backdrop: ['#ffffff', '#d9d5c9'],
+    grid: '#b9b4a5',
+    gridCore: '#8f8a7c',
   },
   obsidian: {
     label: 'Obsidian',
@@ -22,6 +25,9 @@ export const SCENE_PRESETS = {
     ambient: 0.22,
     exposure: 1.12,
     ground: 0.5,
+    backdrop: ['#1b1f1a', '#050605'],
+    grid: '#39402f',
+    gridCore: '#6d7a55',
   },
   daylight: {
     label: 'Daylight',
@@ -31,6 +37,21 @@ export const SCENE_PRESETS = {
     ambient: 0.8,
     exposure: 0.98,
     ground: 0.22,
+    backdrop: ['#ffffff', '#c9d6e4'],
+    grid: '#a9b6c4',
+    gridCore: '#7f8d9c',
+  },
+  hologram: {
+    label: 'Hologram',
+    key: { color: '#dcffb0', intensity: 2.4, position: [2.4, 3.4, 2.8] },
+    fill: { color: '#4a7f8a', intensity: 1.35, position: [-3.2, 1.0, 2.4] },
+    rim: { color: '#ceff25', intensity: 2.7, position: [-1.6, 1.8, -3.2] },
+    ambient: 0.2,
+    exposure: 1.18,
+    ground: 0.42,
+    backdrop: ['#141a16', '#050706'],
+    grid: '#3f6b3a',
+    gridCore: '#ceff25',
   },
   noir: {
     label: 'Noir',
@@ -40,6 +61,9 @@ export const SCENE_PRESETS = {
     ambient: 0.12,
     exposure: 1.2,
     ground: 0.62,
+    backdrop: ['#1a1c20', '#000000'],
+    grid: '#2c3138',
+    gridCore: '#59626e',
   },
 }
 
@@ -134,6 +158,42 @@ export function createCamera(aspect) {
   camera.position.set(0, 0.18, 4.6)
   camera.lookAt(0, 0, 0)
   return camera
+}
+
+// A radial backdrop plus a receding grid give the viewer somewhere to sit.
+// Thumbnails deliberately skip both so product cards stay transparent.
+export function createBackdrop(presetName) {
+  const preset = SCENE_PRESETS[presetName] ?? SCENE_PRESETS.studio
+  const canvas = document.createElement('canvas')
+  canvas.width = 32
+  canvas.height = 256
+  const ctx = canvas.getContext('2d')
+  const gradient = ctx.createLinearGradient(0, 0, 0, 256)
+  gradient.addColorStop(0, preset.backdrop[0])
+  gradient.addColorStop(1, preset.backdrop[1])
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, 32, 256)
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  return texture
+}
+
+export function createGrid(presetName) {
+  const preset = SCENE_PRESETS[presetName] ?? SCENE_PRESETS.studio
+  const grid = new THREE.GridHelper(44, 88, preset.gridCore, preset.grid)
+  grid.position.y = -0.861
+  grid.material.transparent = true
+  grid.material.opacity = 0.5
+  grid.material.depthWrite = false
+  return grid
+}
+
+export function applyGridColors(grid, presetName) {
+  const preset = SCENE_PRESETS[presetName] ?? SCENE_PRESETS.studio
+  const next = new THREE.GridHelper(44, 88, preset.gridCore, preset.grid)
+  grid.geometry.dispose()
+  grid.geometry = next.geometry
+  next.material.dispose()
 }
 
 let webglSupported = null

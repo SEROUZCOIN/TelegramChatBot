@@ -1,11 +1,11 @@
 import { useRef, useState } from 'react'
 import { GarmentImage } from './ProductCard.jsx'
 import { useFocusTrap, useLockBody, money } from '../lib/store.js'
+import { useShop } from '../store/ShopContext.jsx'
 import { Icon } from '../lib/icons.jsx'
 
-const FREE_SHIPPING = 150
-
 export default function CartDrawer({ open, lines, onClose, onQty, onRemove, onCheckout }) {
+  const { settings } = useShop()
   const panelRef = useRef(null)
   const [promo, setPromo] = useState('')
   const [applied, setApplied] = useState(null)
@@ -16,16 +16,16 @@ export default function CartDrawer({ open, lines, onClose, onQty, onRemove, onCh
 
   const subtotal = lines.reduce((sum, line) => sum + line.product.price * line.qty, 0)
   const discount = applied ? Math.round(subtotal * applied.rate) : 0
-  const shipping = subtotal === 0 || subtotal - discount >= FREE_SHIPPING ? 0 : 8
+  const threshold = settings.freeShippingOver
+  const shipping = subtotal === 0 || subtotal - discount >= threshold ? 0 : settings.standardShipping
   const total = subtotal - discount + shipping
-  const remaining = Math.max(0, FREE_SHIPPING - (subtotal - discount))
+  const remaining = Math.max(0, threshold - (subtotal - discount))
 
   const applyPromo = event => {
     event.preventDefault()
     const code = promo.trim().toUpperCase()
-    if (code === 'FORM10') setApplied({ code, rate: 0.1 })
-    else if (code === 'STUDIO20') setApplied({ code, rate: 0.2 })
-    else setApplied({ code, rate: 0, invalid: true })
+    const match = settings.promos.find(entry => entry.active && entry.code.toUpperCase() === code)
+    setApplied(match ? { code, rate: match.rate } : { code, rate: 0, invalid: true })
   }
 
   return (
@@ -54,7 +54,7 @@ export default function CartDrawer({ open, lines, onClose, onQty, onRemove, onCh
                     <p className="mono muted" style={{ marginBottom: 7 }}>
                       {remaining > 0 ? `${money(remaining)} to free shipping` : 'Free shipping unlocked'}
                     </p>
-                    <div className="progress"><i style={{ width: `${Math.min(100, ((subtotal - discount) / FREE_SHIPPING) * 100)}%` }} /></div>
+                    <div className="progress"><i style={{ width: `${Math.min(100, ((subtotal - discount) / threshold) * 100)}%` }} /></div>
                   </div>
                 )}
                 {lines.map(line => (
@@ -92,13 +92,18 @@ export default function CartDrawer({ open, lines, onClose, onQty, onRemove, onCh
                 <form onSubmit={applyPromo} style={{ display: 'flex', gap: 8, marginTop: 18 }}>
                   <div className="field" style={{ flex: 1 }}>
                     <label htmlFor="promo">Promo code</label>
-                    <input id="promo" value={promo} onChange={e => setPromo(e.target.value)} placeholder="FORM10" />
+                    <input
+                      id="promo" value={promo} onChange={e => setPromo(e.target.value)}
+                      placeholder={settings.promos.find(entry => entry.active)?.code ?? 'CODE'}
+                    />
                   </div>
                   <button type="submit" className="btn" style={{ alignSelf: 'flex-end' }}>Apply</button>
                 </form>
                 {applied && (
                   <p style={{ marginTop: 8, fontSize: 12.5, color: applied.invalid ? 'var(--danger)' : 'var(--positive)' }}>
-                    {applied.invalid ? `“${applied.code}” is not a valid code.` : `${applied.code} applied — ${applied.rate * 100}% off.`}
+                    {applied.invalid
+                      ? `“${applied.code}” is not an active code.`
+                      : `${applied.code} applied — ${Math.round(applied.rate * 100)}% off.`}
                   </p>
                 )}
               </>
