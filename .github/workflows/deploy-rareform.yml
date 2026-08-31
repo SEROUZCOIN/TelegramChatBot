@@ -18,6 +18,9 @@ concurrency:
   group: rareform-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   build:
     # A push to a PR branch matches both triggers. Run the push event for
@@ -70,3 +73,49 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: rareform
           command: pages deploy dist --project-name=rareform --branch=${{ github.ref_name }}
+
+  pages:
+    # Publishes to GitHub Pages, which is free on a public repository and needs
+    # no third-party account. The site lives under /<repo>/, so it is rebuilt
+    # with a matching base path.
+    name: GitHub Pages
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    defaults:
+      run:
+        working-directory: rareform
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: rareform/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Build for the Pages subpath
+        run: npm run build -- --base=/${{ github.event.repository.name }}/
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: rareform/dist
+
+      - name: Deploy
+        id: deploy
+        uses: actions/deploy-pages@v4

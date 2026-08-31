@@ -1,7 +1,8 @@
-# Deploying RAREFORM on Cloudflare, free
+# Deploying RAREFORM
 
 The site is a static build — no server, no database, no environment variables.
-Cloudflare Pages hosts it free, with HTTPS and a global CDN included.
+Two free hosts are wired up: GitHub Pages, which needs nothing but this
+repository, and Cloudflare Pages, which is the one to use for a custom domain.
 
 ```bash
 cd rareform
@@ -15,7 +16,32 @@ Everything below is already committed: `wrangler.toml`, `public/_headers`,
 
 ---
 
-## 1. Get it live
+## 0. GitHub Pages — the quickest public URL
+
+The repository is public, so GitHub Pages is free and needs no other account.
+`.github/workflows/deploy-rareform.yml` already builds and publishes to it on
+every push that touches `rareform/`, with the base path set to the repository
+name so assets resolve under the subpath.
+
+Once the first run finishes the site is at:
+
+```
+https://serouzcoin.github.io/TelegramChatBot/
+```
+
+Open it from any PC or phone — no sign-in, nothing to install.
+
+The workflow asks GitHub to turn Pages on by itself. If your repository settings
+do not allow that, enable it once by hand: **Settings → Pages → Build and
+deployment → Source → GitHub Actions**, then re-run the workflow from the
+**Actions** tab.
+
+GitHub Pages will not serve a custom domain with the site in a subpath the way
+this repository is laid out, so for your own domain use Cloudflare below.
+
+---
+
+## 1. Cloudflare Pages
 
 Two routes. Pick one — the first needs no secrets.
 
