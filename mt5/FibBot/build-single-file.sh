@@ -14,7 +14,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 out="$here/FibBot_AllInOne.mq5"
 
 # Dependency order. Config first (structs and inputs), main file last.
-modules=(Config.mqh Util.mqh Swing.mqh Fib.mqh Execution.mqh Api.mqh Visuals.mqh FibBot.mq5)
+modules=(Config.mqh Util.mqh Swing.mqh Fib.mqh Execution.mqh Visuals.mqh FibBot.mq5)
 
 {
   cat <<'HEADER'
@@ -30,7 +30,7 @@ modules=(Config.mqh Util.mqh Swing.mqh Fib.mqh Execution.mqh Api.mqh Visuals.mqh
 //+------------------------------------------------------------------+
 #property copyright "Trading Signals Platform"
 #property version   "1.00"
-#property description "Fibonacci retracement setups: detect, publish, optionally trade."
+#property description "Fibonacci retracement setups: detect, draw, optionally trade."
 
 #include <Trade\Trade.mqh>
 

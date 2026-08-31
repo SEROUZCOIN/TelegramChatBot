@@ -7,13 +7,6 @@
 
 //--- CONFIG: enums -------------------------------------------------
 
-// متى تُنشر الإشارة على المنصة
-enum ENUM_PUBLISH_WHEN
-  {
-   PUBLISH_ON_SETUP,       // When the setup arms (pending zone)
-   PUBLISH_ON_ENTRY        // When the trigger confirms (default)
-  };
-
 // حالات آلة الإعداد — كل انتقال يقرره شمعة مغلقة فقط
 enum ENUM_SETUP_STATE
   {
@@ -69,15 +62,6 @@ input double InpTp1ClosePct    = 50.0;   // Close this % of the position at TP1
 input double InpTp2ClosePct    = 25.0;   // Close this % of the position at TP2
 input double InpMaxDailyLossPct= 3.0;    // Halt for the day after this loss (% of day-start balance)
 
-input group "=== Platform integration ==="
-input bool   InpPublishSignals = true;   // POST setups to the platform API
-input string InpApiBaseUrl     = "https://api.example.com/api"; // API base URL
-input string InpIngestKey      = "";     // X-Ingest-Key
-input string InpMinPlan        = "SIGNALS"; // Tier that receives these signals
-input bool   InpPublishNow     = false;  // Publish immediately, or leave as a draft
-input ENUM_PUBLISH_WHEN InpPublishWhen = PUBLISH_ON_ENTRY; // When to post the signal
-input bool   InpReportUpdates  = true;   // Report entry, BE, TP and SL events
-
 input group "=== Chart display ==="
 input bool   InpShowVisuals    = true;   // Draw the setup on the chart
 
@@ -85,9 +69,6 @@ input bool   InpShowVisuals    = true;   // Draw the setup on the chart
 
 #define LOG_PREFIX      "FibBot: "
 #define OBJ_PREFIX      "FibBot_"
-#define HTTP_TIMEOUT    5000
-#define API_QUEUE_MAX   64
-#define API_RETRY_MAX   3
 #define PIVOT_HISTORY   64
 #define RETRY_MAX       3
 
@@ -135,8 +116,6 @@ struct SSetup
    int      confluence;
    string   confluenceText;
    int      barsArmed;
-   bool     published;
-   bool     entryReported;
   };
 
 // حالة البرنامج كلها في struct واحد — لا متغيرات global مبعثرة

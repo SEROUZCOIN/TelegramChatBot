@@ -51,16 +51,14 @@ the server or the composer.
 
 ## Also in this folder: `FibBot/`
 
-[`FibBot/`](FibBot/README.md) is the other direction — an Expert Advisor that
-*finds* setups rather than reporting yours. It detects non-repainting swing
-pivots, arms a Fibonacci retracement setup only when independent non-Fibonacci
-confluence agrees, waits for a confirmation close, and posts the result through
-this same `signalInputSchema` contract. Execution is opt-in and off by default,
-so out of the box it analyses and publishes without ever sending an order.
+[`FibBot/`](FibBot/README.md) is a standalone Expert Advisor that *finds* setups
+rather than reporting yours. It detects non-repainting swing pivots, arms a
+Fibonacci retracement setup only when independent non-Fibonacci confluence
+agrees, waits for a confirmation close, then draws it and — if you switch
+execution on — trades it.
 
-Because a retracement setup has a real entry *zone*, it is the first caller to
-use `entryLow`/`entryHigh` as the range the schema always allowed — where this
-bridge, reporting a fill, can only collapse them to one price.
+It is unrelated to this bridge and talks to nothing: no API, no ingest key, no
+WebRequest whitelisting. The two can run side by side on different symbols.
 
 The method it implements, and the evidence for and against it, is
 [`docs/education/fibonacci-retracement.md`](../docs/education/fibonacci-retracement.md).

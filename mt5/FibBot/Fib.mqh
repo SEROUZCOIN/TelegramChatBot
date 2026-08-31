@@ -146,8 +146,6 @@ void SetupReset()
    g_setup.confluence     = 0;
    g_setup.confluenceText = "";
    g_setup.barsArmed      = 0;
-   g_setup.published      = false;
-   g_setup.entryReported  = false;
   }
 
 // يحاول تسليح إعداد من آخر نقطتي تأرجح مؤكدتين.
@@ -204,8 +202,6 @@ bool SetupTryArm()
 
    s.state         = SETUP_ARMED;
    s.barsArmed     = 0;
-   s.published     = false;
-   s.entryReported = false;
 
    g_setup = s;
    PrintFormat("%sArmed %s setup — zone %s..%s, stop %s, confluence %d (%s)",
@@ -269,29 +265,6 @@ bool SetupTriggerFired()
    bool bodyAgrees = (g_setup.dir > 0) ? (c1 > o1) : (c1 < o1);
    bool rejected   = AdvancedPast(c1, g_setup.zoneNear, g_setup.dir);
    return(bodyAgrees && rejected);
-  }
-
-//--- description ---------------------------------------------------
-
-// النص المنشور للمشترك: لماذا وُجد هذا الإعداد، بالمستويات الفعلية
-string SetupAnalysisText()
-  {
-   string dirName = (g_setup.dir > 0) ? "bullish" : "bearish";
-   string txt = StringFormat(
-      "Fibonacci retracement into the %.1f%%-%.1f%% zone of a %s impulse leg "
-      "on %s %s. Leg anchored %s to %s. Stop beyond the %.1f%% retracement "
-      "plus %.1f ATR. Targets are the leg extreme and its %.3f / %.3f extensions.",
-      InpEntryFibNear * 100.0, InpEntryFibFar * 100.0, dirName,
-      _Symbol, TimeframeName((ENUM_TIMEFRAMES)_Period),
-      DoubleToString(g_setup.anchorFrom, _Digits),
-      DoubleToString(g_setup.anchorTo, _Digits),
-      InpStopFib * 100.0, InpStopAtrBuffer,
-      InpTp2Extension, InpTp3Extension);
-
-   if(g_setup.confluenceText != "")
-      txt += " Confluence: " + g_setup.confluenceText + ".";
-
-   return(txt);
   }
 
 #endif // FIBBOT_FIB_MQH

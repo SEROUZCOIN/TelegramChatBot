@@ -4,8 +4,8 @@
 //|                                                                  |
 //|  Detects non-repainting swing pivots, arms a retracement setup   |
 //|  only when independent non-Fibonacci confluence agrees, waits    |
-//|  for a confirmation close, then publishes the setup to the       |
-//|  platform API and (optionally) trades it.                        |
+//|  for a confirmation close, then draws it and (optionally)        |
+//|  trades it. Self-contained: it talks to no network service.      |
 //|                                                                  |
 //|  Method and evidence: docs/education/fibonacci-retracement.md    |
 //|  Setup, inputs and caveats: mt5/FibBot/README.md                 |
@@ -15,14 +15,13 @@
 //+------------------------------------------------------------------+
 #property copyright "Trading Signals Platform"
 #property version   "1.00"
-#property description "Fibonacci retracement setups: detect, publish, optionally trade."
+#property description "Fibonacci retracement setups: detect, draw, optionally trade."
 
 #include "Config.mqh"
 #include "Util.mqh"
 #include "Swing.mqh"
 #include "Fib.mqh"
 #include "Execution.mqh"
-#include "Api.mqh"
 #include "Visuals.mqh"
 
 //+------------------------------------------------------------------+
@@ -60,12 +59,9 @@ int OnInit()
    g_bot.dayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
    g_bot.lastDayTs       = 0;
 
-   EventSetTimer(1);      // تصريف طابور الشبكة فقط — لا منطق تداول هنا
-
-   PrintFormat("%sReady on %s %s. Trading %s, publishing %s.", LOG_PREFIX,
+   PrintFormat("%sReady on %s %s. Trading %s.", LOG_PREFIX,
                _Symbol, TimeframeName((ENUM_TIMEFRAMES)_Period),
-               InpEnableTrading ? "ENABLED" : "disabled",
-               ApiEnabled() ? "enabled" : "disabled");
+               InpEnableTrading ? "ENABLED" : "disabled");
 
    if(InpEnableTrading && !TerminalInfoInteger(TERMINAL_TRADE_ALLOWED))
       PrintFormat("%sTrading is enabled in the inputs but AutoTrading is off in the terminal.",
@@ -76,7 +72,6 @@ int OnInit()
 
 void OnDeinit(const int reason)
   {
-   EventKillTimer();
    if(g_bot.hATR != INVALID_HANDLE)
       IndicatorRelease(g_bot.hATR);
    if(g_bot.hTrendMA != INVALID_HANDLE)
@@ -96,12 +91,6 @@ void OnTick()
    VisualsDraw();
   }
 
-// المؤقّت لا يتخذ قرار تداول — مهمته الوحيدة تصريف طلبات HTTP الحاجبة
-void OnTimer()
-  {
-   ApiFlush();
-  }
-
 //+------------------------------------------------------------------+
 //| CORE — the bar pipeline                                          |
 //+------------------------------------------------------------------+
@@ -118,59 +107,29 @@ void ProcessBar()
 
    if(g_setup.state == SETUP_IDLE && newPivot && CountMyPositions() == 0)
      {
-      if(SetupTryArm() && InpPublishWhen == PUBLISH_ON_SETUP)
-         ApiPublishSetup(false, 0);
+      SetupTryArm();
       return;
      }
 
-   if(g_setup.state == SETUP_IN_ZONE)
-     {
-      ReportZoneEntryOnce();
-      if(SetupTriggerFired())
-         EnterFromSetup();
-     }
-  }
-
-// دخول السعر للنطاق يخص إشارة منشورة مسبقاً كأمر معلّق فقط
-void ReportZoneEntryOnce()
-  {
-   if(g_setup.entryReported || !g_setup.published)
-      return;
-   if(InpPublishWhen != PUBLISH_ON_SETUP)
-      return;
-   ApiReportUpdate("ENTRY_HIT", iClose(_Symbol, _Period, 1), "Price reached the entry zone.");
-   g_setup.entryReported = true;
+   if(g_setup.state == SETUP_IN_ZONE && SetupTriggerFired())
+      EnterFromSetup();
   }
 
 void EnterFromSetup()
   {
    double fill = OpenFromSetup();     // تعيد صفراً عندما يكون التنفيذ مطفأً
 
-   if(InpPublishWhen == PUBLISH_ON_ENTRY && !g_setup.published)
-     {
-      double published = (fill > 0) ? fill : iClose(_Symbol, _Period, 1);
-      ApiPublishSetup(true, published);
-     }
-
    g_setup.state = SETUP_TRIGGERED;
 
    if(fill <= 0 && !InpEnableTrading)
-      PrintFormat("%sTrigger confirmed — signal published, execution is off.", LOG_PREFIX);
+      PrintFormat("%sTrigger confirmed at %s — execution is off, nothing sent.", LOG_PREFIX,
+                  DoubleToString(iClose(_Symbol, _Period, 1), _Digits));
   }
 
-// الإعداد انتهى دون دخول: ألغِ الإشارة المنشورة إن وُجدت وابدأ من جديد
 void HandleSetupOutcome()
   {
    if(g_setup.state != SETUP_INVALIDATED && g_setup.state != SETUP_EXPIRED)
       return;
-
-   if(g_setup.published)
-     {
-      string why = (g_setup.state == SETUP_INVALIDATED)
-                   ? "Price closed beyond the leg origin — setup invalidated."
-                   : "The setup expired before price reached the entry zone.";
-      ApiReportUpdate("CANCELLED", 0, why);
-     }
 
    PrintFormat("%sSetup ended: %s", LOG_PREFIX, EnumToString(g_setup.state));
    SetupReset();
@@ -209,24 +168,24 @@ void ManageOpenTrade()
 
    if(!g_bot.tp1Done && TargetReached(g_setup.tp1))
      {
+      PrintFormat("%sTP1 reached at %s.", LOG_PREFIX, DoubleToString(g_setup.tp1, _Digits));
       if(InpTp1ClosePct > 0 && ClosePartialPct(ticket, InpTp1ClosePct))
          PrintFormat("%sTP1 partial closed (%.0f%%).", LOG_PREFIX, InpTp1ClosePct);
-      ApiReportUpdate("TP1_HIT", g_setup.tp1, "First target reached.");
       g_bot.tp1Done = true;
 
       if(InpBeAtTp1 && !g_bot.beDone && MoveStopToBreakEven(ticket))
         {
-         // المنصة تحتسب الوقف بعد نقله للتعادل خدشاً لا خسارة — لهذا يُبلَّغ
-         ApiReportUpdate("MOVED_TO_BE", g_bot.entryPrice, "Stop moved to break-even.");
+         PrintFormat("%sStop moved to break-even at %s.", LOG_PREFIX,
+                     DoubleToString(g_bot.entryPrice, _Digits));
          g_bot.beDone = true;
         }
      }
 
    if(!g_bot.tp2Done && TargetReached(g_setup.tp2))
      {
+      PrintFormat("%sTP2 reached at %s.", LOG_PREFIX, DoubleToString(g_setup.tp2, _Digits));
       if(InpTp2ClosePct > 0 && ClosePartialPct(ticket, InpTp2ClosePct))
          PrintFormat("%sTP2 partial closed (%.0f%%).", LOG_PREFIX, InpTp2ClosePct);
-      ApiReportUpdate("TP2_HIT", g_setup.tp2, "Second target reached.");
       g_bot.tp2Done = true;
      }
   }
@@ -262,20 +221,12 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
                  + HistoryDealGetDouble(trans.deal, DEAL_SWAP)
                  + HistoryDealGetDouble(trans.deal, DEAL_COMMISSION);
 
-   if(reason == DEAL_REASON_SL)
-     {
-      // بعد نقل الوقف للتعادل تحتسب المنصة الضربة خدشاً، لذا الحدث نفسه يكفي
-      ApiReportUpdate("SL_HIT", price, g_bot.beDone
-                      ? "Stopped out at break-even."
-                      : "Stop loss hit.");
-     }
-   else if(reason == DEAL_REASON_TP)
-      ApiReportUpdate("TP3_HIT", price, "Final target reached.");
-   else
-      ApiReportUpdate(pl >= 0 ? "CLOSE_WIN" : "CLOSE_LOSS", price, "Position closed.");
+   string how = (reason == DEAL_REASON_SL)
+                ? (g_bot.beDone ? "stopped out at break-even" : "stop loss")
+                : (reason == DEAL_REASON_TP ? "final target" : "closed");
 
-   PrintFormat("%sClosed at %s, P/L %.2f (%s)", LOG_PREFIX, DoubleToString(price, _Digits), pl,
-               reason == DEAL_REASON_SL ? "SL" : (reason == DEAL_REASON_TP ? "TP" : "other"));
+   PrintFormat("%sPosition %s at %s, P/L %.2f", LOG_PREFIX, how,
+               DoubleToString(price, _Digits), pl);
   }
 
 //+------------------------------------------------------------------+
@@ -315,22 +266,7 @@ bool ValidateInputs()
       PrintFormat("%sTP1 and TP2 partials must leave something for TP3.", LOG_PREFIX);
       return(false);
      }
-   if(!IsKnownPlan(InpMinPlan))
-     {
-      PrintFormat("%sMinPlan must be one of FREE, SIGNALS, NORMAL, PRO, ULTRA.", LOG_PREFIX);
-      return(false);
-     }
-   if(InpPublishSignals && !MQLInfoInteger(MQL_TESTER) && StringLen(InpIngestKey) == 0)
-      PrintFormat("%sPublishing is on but the ingest key is empty — nothing will be posted.",
-                  LOG_PREFIX);
    return(true);
-  }
-
-// نسخة من PLAN_CODES في packages/shared/src/domain.ts
-bool IsKnownPlan(const string plan)
-  {
-   return(plan == "FREE" || plan == "SIGNALS" || plan == "NORMAL" ||
-          plan == "PRO"  || plan == "ULTRA");
   }
 
 //+------------------------------------------------------------------+

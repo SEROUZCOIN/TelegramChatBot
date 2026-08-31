@@ -1,12 +1,15 @@
 # FibBot — Fibonacci retracement bot
 
-Finds Fibonacci retracement setups on the chart it is attached to, publishes
-them to the platform as signals, and — only if you switch execution on — trades
-them with risk-sized position sizing and multi-target management.
+Finds Fibonacci retracement setups on the chart it is attached to, draws them,
+and — only if you switch execution on — trades them with risk-sized position
+sizing and multi-target management.
 
 It is the method in
 [`docs/education/fibonacci-retracement.md`](../../docs/education/fibonacci-retracement.md)
 turned into code, including the parts of that document that are warnings.
+
+**It is self-contained.** No network, no API, no keys, no URL whitelisting. Copy
+it in, compile, attach.
 
 ---
 
@@ -27,7 +30,8 @@ usually fools its author:
   landing together are one factor, not two — they are not independent evidence.
 
 **Execution is off by default** (`InpEnableTrading = false`). Out of the box the
-bot analyses and publishes and never sends an order.
+bot finds and draws setups and never sends an order. Watch it mark up your
+charts for a while before you let it trade.
 
 ---
 
@@ -44,17 +48,14 @@ IDLE
          → ARMED            anchors frozen, levels computed once
               └─ a bar's extreme trades into the entry zone
                    → IN_ZONE
-                        ├─ confirmation close          → TRIGGERED  → publish / trade
+                        ├─ confirmation close          → TRIGGERED  → trade
                         ├─ close beyond the leg origin → INVALIDATED
                         └─ InpSetupExpiryBars elapsed  → EXPIRED
 ```
 
 Anchors are **immutable** once armed. A new leg creates a new setup; it never
-edits a live one. This is the same discipline
-[`packages/shared/src/signal-state.ts`](../../packages/shared/src/signal-state.ts)
-applies to signal status, for the same reason — a level that silently moves
-after publication is the same integrity failure as a win rate that improves
-after the fact.
+edits a live one. A level that silently moves after you have acted on it is not
+a level.
 
 A setup arms one bar before its zone is evaluated. Given the pivot itself is
 already confirmed six bars late by default, one more bar costs nothing and keeps
@@ -63,7 +64,7 @@ the rule "state changes only on a closed bar" without exception.
 ### Confluence factors
 
 All five are non-Fibonacci and mechanically checkable. Whichever fire are named
-in the published `analysisText`, so a subscriber sees *why* the setup exists.
+in the journal line when the setup arms, so you can see *why* it exists.
 
 | Factor | Fires when |
 |---|---|
@@ -99,17 +100,13 @@ has been tested.
 
 ## Setup
 
-1. **Allow the URL.** MetaTrader 5 → Tools → Options → Expert Advisors → tick
-   *Allow WebRequest for listed URL* and add your API base URL. Skipping this is
-   the most common failure; every request returns `-1` with error `4014`.
-2. **Create an ingest key.** Admin panel → Settings → MT5 bridge. Paste it into
-   `InpIngestKey`. The key is stored hashed and revocable on its own, so a
-   compromised VPS never exposes a user account.
-3. **Copy the whole `FibBot` folder** into `MQL5\Experts\`, open `FibBot.mq5` in
-   MetaEditor and compile (F7). The folder is self-contained and uses relative
-   includes, so it compiles from any location under `Experts\`.
-4. **Attach one instance per chart.** Unlike `SignalBridge.mq5`, this EA acts on
-   the symbol and timeframe of the chart it sits on.
+1. **Copy it in.** Either the whole `FibBot` folder into `MQL5\Experts\`, or just
+   `FibBot_AllInOne.mq5` — same code, one file, easier to paste.
+2. **Compile.** Open `FibBot.mq5` (or the all-in-one) in MetaEditor, press **F7**.
+3. **Attach one instance per chart.** It acts on the symbol and timeframe of the
+   chart it sits on.
+
+That is all. There is nothing to configure before it runs.
 
 ---
 
@@ -126,47 +123,15 @@ has been tested.
 | `InpRequireTrigger` | true | Off = enter on touch. Turning this off is how the strategy usually stops working. |
 | `InpEnableTrading` | **false** | Execution opt-in. |
 | `InpRiskPercent` | 1.0 | Sized from the real stop distance, never from a fixed lot. |
-| `InpPublishWhen` | ON_ENTRY | ON_SETUP publishes the pending zone as a LIMIT signal instead. |
+| `InpBeAtTp1` | true | Stop to break-even once the first target fills. |
 | `InpMaxDailyLossPct` | 3.0 | Halts for the server day; a new day clears it. |
-
----
-
-## How it maps onto the platform
-
-It posts the same `signalInputSchema` the admin composer and `SignalBridge.mq5`
-post — so this is one more caller of an existing contract, not a second
-definition of what a signal is.
-
-| Signal field | What the bot puts there |
-|---|---|
-| `entryLow` / `entryHigh` | **The Fibonacci zone edges** when publishing on setup |
-| `orderType` | `LIMIT` when publishing the zone, `MARKET` at a confirmed entry |
-| `sl` | The retracement stop plus its ATR buffer |
-| `tp1` / `tp2` / `tp3` | Leg extreme, then the 1.272 and 1.618 extensions |
-| `beTrigger` | `tp1` — where the stop is pulled to break-even |
-| `analysisText` | Generated: the zone, the anchors, and the confluence that fired |
-
-`entryLow`/`entryHigh` finally carry the meaning the schema always allowed. A
-retracement setup has a genuine entry *zone*, where a reported fill (what
-`SignalBridge.mq5` sends) collapses to a single price.
-
-Updates posted to `/ingest/signals/updates`: `ENTRY_HIT`, `MOVED_TO_BE`,
-`TP1_HIT`, `TP2_HIT`, `TP3_HIT`, `SL_HIT`, `CLOSE_WIN`, `CLOSE_LOSS`,
-`CANCELLED`. The break-even report is the one that matters most for honesty:
-the platform scores a stop-out *after* a break-even move as a scratch rather
-than a loss, so publishing that event is what keeps the win rate truthful.
-
-**One live signal per symbol.** The ingest endpoint matches an update to the
-most recent open signal for that symbol, so running two instances on the same
-instrument makes updates ambiguous. One chart per symbol.
 
 ---
 
 ## Backtesting it
 
-`WebRequest` is disabled in the Strategy Tester, so the whole API layer no-ops
-there and the strategy runs unchanged. That is the point: the trading logic is
-testable in isolation.
+The bot talks to nothing external, so it runs in the Strategy Tester exactly as
+it runs live. That is the point.
 
 What the document asks you to test is not "is this profitable" but:
 
@@ -210,14 +175,10 @@ Other hygiene, all of which this design already supports:
 
 ## Relationship to `SignalBridge.mq5`
 
-They are complements and can run side by side, on different charts.
+Unrelated, and they can run side by side. `SignalBridge.mq5` publishes trades
+*you* place to the platform API for your subscribers. FibBot finds its own
+setups and reports to nobody.
 
-| | `SignalBridge.mq5` | `FibBot` |
-|---|---|---|
-| Source of signals | Trades **you** place manually | Setups it finds itself |
-| Opens positions | Never | Only if `InpEnableTrading` |
-| Scope | The whole terminal | One chart's symbol |
-| Entry field | A single fill price | A zone, when publishing on setup |
-
-If you run both, give them different symbols — otherwise two callers publish
-signals for the same instrument and the update matching becomes ambiguous.
+If you ever want FibBot's setups on the subscriber feed, that wiring existed and
+was removed deliberately — `git log` has it, and reverting the commit that
+removed it brings it back intact.

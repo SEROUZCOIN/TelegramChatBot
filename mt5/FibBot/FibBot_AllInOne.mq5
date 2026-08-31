@@ -10,7 +10,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Trading Signals Platform"
 #property version   "1.00"
-#property description "Fibonacci retracement setups: detect, publish, optionally trade."
+#property description "Fibonacci retracement setups: detect, draw, optionally trade."
 
 #include <Trade\Trade.mqh>
 
@@ -25,13 +25,6 @@
 //+------------------------------------------------------------------+
 
 //--- CONFIG: enums -------------------------------------------------
-
-// متى تُنشر الإشارة على المنصة
-enum ENUM_PUBLISH_WHEN
-  {
-   PUBLISH_ON_SETUP,       // When the setup arms (pending zone)
-   PUBLISH_ON_ENTRY        // When the trigger confirms (default)
-  };
 
 // حالات آلة الإعداد — كل انتقال يقرره شمعة مغلقة فقط
 enum ENUM_SETUP_STATE
@@ -88,15 +81,6 @@ input double InpTp1ClosePct    = 50.0;   // Close this % of the position at TP1
 input double InpTp2ClosePct    = 25.0;   // Close this % of the position at TP2
 input double InpMaxDailyLossPct= 3.0;    // Halt for the day after this loss (% of day-start balance)
 
-input group "=== Platform integration ==="
-input bool   InpPublishSignals = true;   // POST setups to the platform API
-input string InpApiBaseUrl     = "https://api.example.com/api"; // API base URL
-input string InpIngestKey      = "";     // X-Ingest-Key
-input string InpMinPlan        = "SIGNALS"; // Tier that receives these signals
-input bool   InpPublishNow     = false;  // Publish immediately, or leave as a draft
-input ENUM_PUBLISH_WHEN InpPublishWhen = PUBLISH_ON_ENTRY; // When to post the signal
-input bool   InpReportUpdates  = true;   // Report entry, BE, TP and SL events
-
 input group "=== Chart display ==="
 input bool   InpShowVisuals    = true;   // Draw the setup on the chart
 
@@ -104,9 +88,6 @@ input bool   InpShowVisuals    = true;   // Draw the setup on the chart
 
 #define LOG_PREFIX      "FibBot: "
 #define OBJ_PREFIX      "FibBot_"
-#define HTTP_TIMEOUT    5000
-#define API_QUEUE_MAX   64
-#define API_RETRY_MAX   3
 #define PIVOT_HISTORY   64
 #define RETRY_MAX       3
 
@@ -154,8 +135,6 @@ struct SSetup
    int      confluence;
    string   confluenceText;
    int      barsArmed;
-   bool     published;
-   bool     entryReported;
   };
 
 // حالة البرنامج كلها في struct واحد — لا متغيرات global مبعثرة
@@ -265,54 +244,6 @@ double LotsForRisk(const string symbol, const double riskMoney, const double sto
    if(lossPerLot <= 0)
       return(0);
    return(NormalizeVolumeStep(symbol, riskMoney / lossPerLot));
-  }
-
-//--- JSON ----------------------------------------------------------
-
-// تهريب المحارف التي تكسر JSON — النص التحليلي مولّد فلا بد منه
-string JsonEscape(const string src)
-  {
-   string out = "";
-   int    n   = StringLen(src);
-   for(int i = 0; i < n; i++)
-     {
-      ushort c = StringGetCharacter(src, i);
-      if(c == '"')
-         out += "\\\"";
-      else if(c == '\\')
-         out += "\\\\";
-      else if(c == '\n')
-         out += "\\n";
-      else if(c == '\r')
-         out += "\\r";
-      else if(c == '\t')
-         out += "\\t";
-      else if(c < 32)
-         out += " ";
-      else
-         out += ShortToString(c);
-     }
-   return(out);
-  }
-
-string JsonStr(const string key, const string value)
-  {
-   return("\"" + key + "\":\"" + JsonEscape(value) + "\"");
-  }
-
-string JsonNum(const string key, const double value, const int digits)
-  {
-   return("\"" + key + "\":" + DoubleToString(value, digits));
-  }
-
-string JsonBool(const string key, const bool value)
-  {
-   return("\"" + key + "\":" + (value ? "true" : "false"));
-  }
-
-string JsonObj(const string body)
-  {
-   return("{" + body + "}");
   }
 
 //--- formatting ----------------------------------------------------
@@ -682,8 +613,6 @@ void SetupReset()
    g_setup.confluence     = 0;
    g_setup.confluenceText = "";
    g_setup.barsArmed      = 0;
-   g_setup.published      = false;
-   g_setup.entryReported  = false;
   }
 
 // يحاول تسليح إعداد من آخر نقطتي تأرجح مؤكدتين.
@@ -740,8 +669,6 @@ bool SetupTryArm()
 
    s.state         = SETUP_ARMED;
    s.barsArmed     = 0;
-   s.published     = false;
-   s.entryReported = false;
 
    g_setup = s;
    PrintFormat("%sArmed %s setup — zone %s..%s, stop %s, confluence %d (%s)",
@@ -805,29 +732,6 @@ bool SetupTriggerFired()
    bool bodyAgrees = (g_setup.dir > 0) ? (c1 > o1) : (c1 < o1);
    bool rejected   = AdvancedPast(c1, g_setup.zoneNear, g_setup.dir);
    return(bodyAgrees && rejected);
-  }
-
-//--- description ---------------------------------------------------
-
-// النص المنشور للمشترك: لماذا وُجد هذا الإعداد، بالمستويات الفعلية
-string SetupAnalysisText()
-  {
-   string dirName = (g_setup.dir > 0) ? "bullish" : "bearish";
-   string txt = StringFormat(
-      "Fibonacci retracement into the %.1f%%-%.1f%% zone of a %s impulse leg "
-      "on %s %s. Leg anchored %s to %s. Stop beyond the %.1f%% retracement "
-      "plus %.1f ATR. Targets are the leg extreme and its %.3f / %.3f extensions.",
-      InpEntryFibNear * 100.0, InpEntryFibFar * 100.0, dirName,
-      _Symbol, TimeframeName((ENUM_TIMEFRAMES)_Period),
-      DoubleToString(g_setup.anchorFrom, _Digits),
-      DoubleToString(g_setup.anchorTo, _Digits),
-      InpStopFib * 100.0, InpStopAtrBuffer,
-      InpTp2Extension, InpTp3Extension);
-
-   if(g_setup.confluenceText != "")
-      txt += " Confluence: " + g_setup.confluenceText + ".";
-
-   return(txt);
   }
 
 //+------------------------------------------------------------------+
@@ -1096,205 +1000,6 @@ bool TargetReached(const double target)
 //+------------------------------------------------------------------+
 
 //====================================================================
-// Api.mqh
-//====================================================================
-
-//+------------------------------------------------------------------+
-//|                                                          Api.mqh |
-//|  Platform integration. Posts the SAME `signalInputSchema` the    |
-//|  admin composer and SignalBridge.mq5 post, so this bot is one    |
-//|  more caller of an existing contract, not a second definition    |
-//|  of what a signal is.                                            |
-//|                                                                  |
-//|  WebRequest BLOCKS, so nothing here is ever called from OnTick:  |
-//|  requests are queued and drained one per OnTimer cycle. The      |
-//|  whole module no-ops in the Strategy Tester, which is what lets  |
-//|  the strategy be backtested unchanged.                           |
-//+------------------------------------------------------------------+
-
-
-struct SApiJob
-  {
-   string path;
-   string body;
-   int    attempts;
-  };
-
-SApiJob g_apiQueue[];
-
-//--- gating --------------------------------------------------------
-
-bool ApiEnabled()
-  {
-   if(!InpPublishSignals)
-      return(false);
-   if(MQLInfoInteger(MQL_TESTER))     // WebRequest معطّل في الاختبار أصلاً
-      return(false);
-   if(StringLen(InpIngestKey) == 0 || StringLen(InpApiBaseUrl) == 0)
-      return(false);
-   return(true);
-  }
-
-//--- queue ---------------------------------------------------------
-
-void ApiQueue(const string path, const string body)
-  {
-   if(!ApiEnabled())
-      return;
-
-   int n = ArraySize(g_apiQueue);
-   if(n >= API_QUEUE_MAX)
-     {
-      // أسقط الأقدم بدل أن ينمو الطابور بلا حد
-      for(int i = 0; i < n - 1; i++)
-         g_apiQueue[i] = g_apiQueue[i + 1];
-      n--;
-      ArrayResize(g_apiQueue, n);
-     }
-
-   ArrayResize(g_apiQueue, n + 1);
-   g_apiQueue[n].path     = path;
-   g_apiQueue[n].body     = body;
-   g_apiQueue[n].attempts = 0;
-  }
-
-void ApiQueuePopFront()
-  {
-   int n = ArraySize(g_apiQueue);
-   if(n <= 0)
-      return;
-   for(int i = 0; i < n - 1; i++)
-      g_apiQueue[i] = g_apiQueue[i + 1];
-   ArrayResize(g_apiQueue, n - 1);
-  }
-
-//--- transport -----------------------------------------------------
-
-bool ApiPost(const string path, const string body)
-  {
-   string url     = InpApiBaseUrl + path;
-   string headers = "Content-Type: application/json\r\nX-Ingest-Key: " + InpIngestKey + "\r\n";
-
-   char post[], result[];
-   string resultHeaders;
-
-   // العدد المعاد يشمل المحرف الصفري الختامي — أسقطه وإلا رفض الخادم الجسم
-   int copied = StringToCharArray(body, post, 0, WHOLE_ARRAY, CP_UTF8);
-   if(copied < 1)
-      return(false);
-   ArrayResize(post, copied - 1);
-
-   ResetLastError();
-   int status = WebRequest("POST", url, headers, HTTP_TIMEOUT, post, result, resultHeaders);
-
-   if(status == -1)
-     {
-      int err = GetLastError();
-      if(err == 4014 || err == 5203)
-         PrintFormat("%s%s is not in the allowed WebRequest list "
-                     "(Tools > Options > Expert Advisors).", LOG_PREFIX, url);
-      else
-         PrintFormat("%sWebRequest failed, error %d", LOG_PREFIX, err);
-      return(false);
-     }
-
-   if(status < 200 || status >= 300)
-     {
-      PrintFormat("%sAPI returned HTTP %d — %s", LOG_PREFIX, status,
-                  CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8));
-      // 4xx = طلب مرفوض بذاته: إعادة إرساله ستُرفض مثله، فاعتبره منتهياً وأسقطه
-      // 5xx = عطل مؤقت في الخادم: يستحق إعادة المحاولة
-      if(status >= 400 && status < 500)
-         return(true);
-      return(false);
-     }
-
-   return(true);
-  }
-
-// طلب واحد لكل دورة مؤقّت: WebRequest حاجب فلا يُستدعى مرتين في نبضة
-void ApiFlush()
-  {
-   if(!ApiEnabled() || ArraySize(g_apiQueue) == 0)
-      return;
-
-   if(ApiPost(g_apiQueue[0].path, g_apiQueue[0].body))
-     {
-      ApiQueuePopFront();
-      return;
-     }
-
-   g_apiQueue[0].attempts++;
-   if(g_apiQueue[0].attempts >= API_RETRY_MAX)
-     {
-      PrintFormat("%sDropping %s after %d attempts.", LOG_PREFIX,
-                  g_apiQueue[0].path, g_apiQueue[0].attempts);
-      ApiQueuePopFront();
-     }
-  }
-
-//--- payloads ------------------------------------------------------
-
-// نطاق الدخول هو منطقة فيبوناتشي نفسها — لهذا يحمل العقد entryLow و entryHigh
-void ApiPublishSetup(const bool asMarketFill, const double fillPrice)
-  {
-   if(!ApiEnabled() || g_setup.state == SETUP_IDLE)
-      return;
-
-   double entryLow, entryHigh;
-   string orderType;
-
-   if(asMarketFill && fillPrice > 0)
-     {
-      entryLow  = fillPrice;
-      entryHigh = fillPrice;
-      orderType = "MARKET";
-     }
-   else
-     {
-      entryLow  = MathMin(g_setup.zoneNear, g_setup.zoneFar);
-      entryHigh = MathMax(g_setup.zoneNear, g_setup.zoneFar);
-      orderType = "LIMIT";
-     }
-
-   string body = JsonObj(
-      JsonStr("symbol", _Symbol) + "," +
-      JsonStr("direction", g_setup.dir > 0 ? "BUY" : "SELL") + "," +
-      JsonStr("orderType", orderType) + "," +
-      JsonNum("entryLow", entryLow, _Digits) + "," +
-      JsonNum("entryHigh", entryHigh, _Digits) + "," +
-      JsonNum("sl", g_setup.stop, _Digits) + "," +
-      JsonNum("tp1", g_setup.tp1, _Digits) + "," +
-      JsonNum("tp2", g_setup.tp2, _Digits) + "," +
-      JsonNum("tp3", g_setup.tp3, _Digits) + "," +
-      JsonNum("beTrigger", g_setup.tp1, _Digits) + "," +
-      JsonStr("timeframe", TimeframeName((ENUM_TIMEFRAMES)_Period)) + "," +
-      JsonNum("riskPercent", InpRiskPercent, 2) + "," +
-      JsonStr("minPlan", InpMinPlan) + "," +
-      JsonBool("publishNow", InpPublishNow) + "," +
-      JsonStr("analysisText", SetupAnalysisText()));
-
-   ApiQueue("/ingest/signals", body);
-   g_setup.published = true;
-  }
-
-void ApiReportUpdate(const string updateType, const double price, const string note)
-  {
-   if(!ApiEnabled() || !InpReportUpdates)
-      return;
-
-   string body = JsonStr("symbol", _Symbol) + "," +
-                 JsonStr("type", updateType) + "," +
-                 JsonStr("note", note);
-   if(price > 0)
-      body += "," + JsonNum("price", price, _Digits);
-
-   ApiQueue("/ingest/signals/updates", JsonObj(body));
-  }
-
-//+------------------------------------------------------------------+
-
-//====================================================================
 // Visuals.mqh
 //====================================================================
 
@@ -1430,8 +1135,8 @@ void VisualsDraw()
 //|                                                                  |
 //|  Detects non-repainting swing pivots, arms a retracement setup   |
 //|  only when independent non-Fibonacci confluence agrees, waits    |
-//|  for a confirmation close, then publishes the setup to the       |
-//|  platform API and (optionally) trades it.                        |
+//|  for a confirmation close, then draws it and (optionally)        |
+//|  trades it. Self-contained: it talks to no network service.      |
 //|                                                                  |
 //|  Method and evidence: docs/education/fibonacci-retracement.md    |
 //|  Setup, inputs and caveats: mt5/FibBot/README.md                 |
@@ -1476,12 +1181,9 @@ int OnInit()
    g_bot.dayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
    g_bot.lastDayTs       = 0;
 
-   EventSetTimer(1);      // تصريف طابور الشبكة فقط — لا منطق تداول هنا
-
-   PrintFormat("%sReady on %s %s. Trading %s, publishing %s.", LOG_PREFIX,
+   PrintFormat("%sReady on %s %s. Trading %s.", LOG_PREFIX,
                _Symbol, TimeframeName((ENUM_TIMEFRAMES)_Period),
-               InpEnableTrading ? "ENABLED" : "disabled",
-               ApiEnabled() ? "enabled" : "disabled");
+               InpEnableTrading ? "ENABLED" : "disabled");
 
    if(InpEnableTrading && !TerminalInfoInteger(TERMINAL_TRADE_ALLOWED))
       PrintFormat("%sTrading is enabled in the inputs but AutoTrading is off in the terminal.",
@@ -1492,7 +1194,6 @@ int OnInit()
 
 void OnDeinit(const int reason)
   {
-   EventKillTimer();
    if(g_bot.hATR != INVALID_HANDLE)
       IndicatorRelease(g_bot.hATR);
    if(g_bot.hTrendMA != INVALID_HANDLE)
@@ -1512,12 +1213,6 @@ void OnTick()
    VisualsDraw();
   }
 
-// المؤقّت لا يتخذ قرار تداول — مهمته الوحيدة تصريف طلبات HTTP الحاجبة
-void OnTimer()
-  {
-   ApiFlush();
-  }
-
 //+------------------------------------------------------------------+
 //| CORE — the bar pipeline                                          |
 //+------------------------------------------------------------------+
@@ -1534,59 +1229,29 @@ void ProcessBar()
 
    if(g_setup.state == SETUP_IDLE && newPivot && CountMyPositions() == 0)
      {
-      if(SetupTryArm() && InpPublishWhen == PUBLISH_ON_SETUP)
-         ApiPublishSetup(false, 0);
+      SetupTryArm();
       return;
      }
 
-   if(g_setup.state == SETUP_IN_ZONE)
-     {
-      ReportZoneEntryOnce();
-      if(SetupTriggerFired())
-         EnterFromSetup();
-     }
-  }
-
-// دخول السعر للنطاق يخص إشارة منشورة مسبقاً كأمر معلّق فقط
-void ReportZoneEntryOnce()
-  {
-   if(g_setup.entryReported || !g_setup.published)
-      return;
-   if(InpPublishWhen != PUBLISH_ON_SETUP)
-      return;
-   ApiReportUpdate("ENTRY_HIT", iClose(_Symbol, _Period, 1), "Price reached the entry zone.");
-   g_setup.entryReported = true;
+   if(g_setup.state == SETUP_IN_ZONE && SetupTriggerFired())
+      EnterFromSetup();
   }
 
 void EnterFromSetup()
   {
    double fill = OpenFromSetup();     // تعيد صفراً عندما يكون التنفيذ مطفأً
 
-   if(InpPublishWhen == PUBLISH_ON_ENTRY && !g_setup.published)
-     {
-      double published = (fill > 0) ? fill : iClose(_Symbol, _Period, 1);
-      ApiPublishSetup(true, published);
-     }
-
    g_setup.state = SETUP_TRIGGERED;
 
    if(fill <= 0 && !InpEnableTrading)
-      PrintFormat("%sTrigger confirmed — signal published, execution is off.", LOG_PREFIX);
+      PrintFormat("%sTrigger confirmed at %s — execution is off, nothing sent.", LOG_PREFIX,
+                  DoubleToString(iClose(_Symbol, _Period, 1), _Digits));
   }
 
-// الإعداد انتهى دون دخول: ألغِ الإشارة المنشورة إن وُجدت وابدأ من جديد
 void HandleSetupOutcome()
   {
    if(g_setup.state != SETUP_INVALIDATED && g_setup.state != SETUP_EXPIRED)
       return;
-
-   if(g_setup.published)
-     {
-      string why = (g_setup.state == SETUP_INVALIDATED)
-                   ? "Price closed beyond the leg origin — setup invalidated."
-                   : "The setup expired before price reached the entry zone.";
-      ApiReportUpdate("CANCELLED", 0, why);
-     }
 
    PrintFormat("%sSetup ended: %s", LOG_PREFIX, EnumToString(g_setup.state));
    SetupReset();
@@ -1625,24 +1290,24 @@ void ManageOpenTrade()
 
    if(!g_bot.tp1Done && TargetReached(g_setup.tp1))
      {
+      PrintFormat("%sTP1 reached at %s.", LOG_PREFIX, DoubleToString(g_setup.tp1, _Digits));
       if(InpTp1ClosePct > 0 && ClosePartialPct(ticket, InpTp1ClosePct))
          PrintFormat("%sTP1 partial closed (%.0f%%).", LOG_PREFIX, InpTp1ClosePct);
-      ApiReportUpdate("TP1_HIT", g_setup.tp1, "First target reached.");
       g_bot.tp1Done = true;
 
       if(InpBeAtTp1 && !g_bot.beDone && MoveStopToBreakEven(ticket))
         {
-         // المنصة تحتسب الوقف بعد نقله للتعادل خدشاً لا خسارة — لهذا يُبلَّغ
-         ApiReportUpdate("MOVED_TO_BE", g_bot.entryPrice, "Stop moved to break-even.");
+         PrintFormat("%sStop moved to break-even at %s.", LOG_PREFIX,
+                     DoubleToString(g_bot.entryPrice, _Digits));
          g_bot.beDone = true;
         }
      }
 
    if(!g_bot.tp2Done && TargetReached(g_setup.tp2))
      {
+      PrintFormat("%sTP2 reached at %s.", LOG_PREFIX, DoubleToString(g_setup.tp2, _Digits));
       if(InpTp2ClosePct > 0 && ClosePartialPct(ticket, InpTp2ClosePct))
          PrintFormat("%sTP2 partial closed (%.0f%%).", LOG_PREFIX, InpTp2ClosePct);
-      ApiReportUpdate("TP2_HIT", g_setup.tp2, "Second target reached.");
       g_bot.tp2Done = true;
      }
   }
@@ -1678,20 +1343,12 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
                  + HistoryDealGetDouble(trans.deal, DEAL_SWAP)
                  + HistoryDealGetDouble(trans.deal, DEAL_COMMISSION);
 
-   if(reason == DEAL_REASON_SL)
-     {
-      // بعد نقل الوقف للتعادل تحتسب المنصة الضربة خدشاً، لذا الحدث نفسه يكفي
-      ApiReportUpdate("SL_HIT", price, g_bot.beDone
-                      ? "Stopped out at break-even."
-                      : "Stop loss hit.");
-     }
-   else if(reason == DEAL_REASON_TP)
-      ApiReportUpdate("TP3_HIT", price, "Final target reached.");
-   else
-      ApiReportUpdate(pl >= 0 ? "CLOSE_WIN" : "CLOSE_LOSS", price, "Position closed.");
+   string how = (reason == DEAL_REASON_SL)
+                ? (g_bot.beDone ? "stopped out at break-even" : "stop loss")
+                : (reason == DEAL_REASON_TP ? "final target" : "closed");
 
-   PrintFormat("%sClosed at %s, P/L %.2f (%s)", LOG_PREFIX, DoubleToString(price, _Digits), pl,
-               reason == DEAL_REASON_SL ? "SL" : (reason == DEAL_REASON_TP ? "TP" : "other"));
+   PrintFormat("%sPosition %s at %s, P/L %.2f", LOG_PREFIX, how,
+               DoubleToString(price, _Digits), pl);
   }
 
 //+------------------------------------------------------------------+
@@ -1731,22 +1388,7 @@ bool ValidateInputs()
       PrintFormat("%sTP1 and TP2 partials must leave something for TP3.", LOG_PREFIX);
       return(false);
      }
-   if(!IsKnownPlan(InpMinPlan))
-     {
-      PrintFormat("%sMinPlan must be one of FREE, SIGNALS, NORMAL, PRO, ULTRA.", LOG_PREFIX);
-      return(false);
-     }
-   if(InpPublishSignals && !MQLInfoInteger(MQL_TESTER) && StringLen(InpIngestKey) == 0)
-      PrintFormat("%sPublishing is on but the ingest key is empty — nothing will be posted.",
-                  LOG_PREFIX);
    return(true);
-  }
-
-// نسخة من PLAN_CODES في packages/shared/src/domain.ts
-bool IsKnownPlan(const string plan)
-  {
-   return(plan == "FREE" || plan == "SIGNALS" || plan == "NORMAL" ||
-          plan == "PRO"  || plan == "ULTRA");
   }
 
 //+------------------------------------------------------------------+

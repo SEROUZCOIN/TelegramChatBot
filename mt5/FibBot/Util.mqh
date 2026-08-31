@@ -82,54 +82,6 @@ double LotsForRisk(const string symbol, const double riskMoney, const double sto
    return(NormalizeVolumeStep(symbol, riskMoney / lossPerLot));
   }
 
-//--- JSON ----------------------------------------------------------
-
-// تهريب المحارف التي تكسر JSON — النص التحليلي مولّد فلا بد منه
-string JsonEscape(const string src)
-  {
-   string out = "";
-   int    n   = StringLen(src);
-   for(int i = 0; i < n; i++)
-     {
-      ushort c = StringGetCharacter(src, i);
-      if(c == '"')
-         out += "\\\"";
-      else if(c == '\\')
-         out += "\\\\";
-      else if(c == '\n')
-         out += "\\n";
-      else if(c == '\r')
-         out += "\\r";
-      else if(c == '\t')
-         out += "\\t";
-      else if(c < 32)
-         out += " ";
-      else
-         out += ShortToString(c);
-     }
-   return(out);
-  }
-
-string JsonStr(const string key, const string value)
-  {
-   return("\"" + key + "\":\"" + JsonEscape(value) + "\"");
-  }
-
-string JsonNum(const string key, const double value, const int digits)
-  {
-   return("\"" + key + "\":" + DoubleToString(value, digits));
-  }
-
-string JsonBool(const string key, const bool value)
-  {
-   return("\"" + key + "\":" + (value ? "true" : "false"));
-  }
-
-string JsonObj(const string body)
-  {
-   return("{" + body + "}");
-  }
-
 //--- formatting ----------------------------------------------------
 
 // PERIOD_CURRENT يُطبع "CURRENT" لولا الحل هنا — والمشترك يحتاج الإطار الفعلي
