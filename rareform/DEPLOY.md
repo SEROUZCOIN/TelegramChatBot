@@ -23,18 +23,23 @@ The repository is public, so GitHub Pages is free and needs no other account.
 every push that touches `rareform/`, with the base path set to the repository
 name so assets resolve under the subpath.
 
-Once the first run finishes the site is at:
+**One switch first.** A workflow token is not allowed to create a Pages site,
+so turn it on once by hand:
+
+**Settings → Pages → Build and deployment → Source → GitHub Actions.**
+
+Then re-run the workflow from the **Actions** tab, or push anything under
+`rareform/`. Until Pages is on, the job checks, prints a notice and passes
+without publishing — it never fails the build.
+
+Once it publishes, the site is at:
 
 ```
 https://serouzcoin.github.io/TelegramChatBot/
 ```
 
-Open it from any PC or phone — no sign-in, nothing to install.
-
-The workflow asks GitHub to turn Pages on by itself. If your repository settings
-do not allow that, enable it once by hand: **Settings → Pages → Build and
-deployment → Source → GitHub Actions**, then re-run the workflow from the
-**Actions** tab.
+Open it from any PC or phone — no sign-in, nothing to install. Every later push
+that touches `rareform/` republishes it.
 
 GitHub Pages will not serve a custom domain with the site in a subpath the way
 this repository is laid out, so for your own domain use Cloudflare below.

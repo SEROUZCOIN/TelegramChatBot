@@ -107,15 +107,32 @@ jobs:
       - name: Build for the Pages subpath
         run: npm run build -- --base=/${{ github.event.repository.name }}/
 
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
+      # The workflow token is not allowed to create the Pages site, so check
+      # rather than fail: the job stays green and says what to switch on, and
+      # starts publishing as soon as Pages is enabled.
+      - name: Is Pages enabled?
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh api "repos/${{ github.repository }}/pages" >/dev/null 2>&1; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=GitHub Pages is off::Enable it at Settings -> Pages -> Build and deployment -> Source: GitHub Actions, then re-run this workflow. See rareform/DEPLOY.md."
+          fi
 
-      - uses: actions/upload-pages-artifact@v3
+      - name: Configure Pages
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/configure-pages@v5
+
+      - name: Upload
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/upload-pages-artifact@v3
         with:
           path: rareform/dist
 
       - name: Deploy
         id: deploy
+        if: steps.check.outputs.enabled == 'true'
         uses: actions/deploy-pages@v4
