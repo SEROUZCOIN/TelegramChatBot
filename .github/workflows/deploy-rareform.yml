@@ -1,0 +1,151 @@
+name: RAREFORM — build and deploy
+
+# Builds the storefront on every push that touches it, and publishes to
+# Cloudflare Pages when the account secrets are present. Without those secrets
+# the job still builds and passes, and says what is missing.
+
+on:
+  push:
+    paths:
+      - 'rareform/**'
+      - '.github/workflows/deploy-rareform.yml'
+  pull_request:
+    paths:
+      - 'rareform/**'
+  workflow_dispatch:
+
+concurrency:
+  group: rareform-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # A push to a PR branch matches both triggers. Run the push event for
+    # branches in this repo, and the pull_request event only for forks, which
+    # push events cannot see.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rareform
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: rareform/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Build single-file bundle
+        run: npm run bundle
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: rareform-dist
+          path: rareform/dist
+          retention-days: 14
+
+      - name: Cloudflare Pages not configured
+        if: env.CLOUDFLARE_API_TOKEN == '' || env.CLOUDFLARE_ACCOUNT_ID == ''
+        run: |
+          echo "::notice title=Deploy skipped::Add the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets to publish this build to Cloudflare Pages. See rareform/DEPLOY.md."
+
+      - name: Deploy to Cloudflare Pages
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: rareform
+          command: pages deploy dist --project-name=rareform --branch=${{ github.ref_name }}
+
+  pages:
+    # Publishes to GitHub Pages, which is free on a public repository and needs
+    # no third-party account. Without a custom domain the site lives under a
+    # /repository-name/ subpath; with one it lives at the domain root, and the
+    # base path has to match or every asset 404s.
+    name: GitHub Pages
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    defaults:
+      run:
+        working-directory: rareform
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: rareform/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      # Set the PAGES_CUSTOM_DOMAIN repository variable to publish on your own
+      # domain: Settings -> Secrets and variables -> Actions -> Variables.
+      - name: Build
+        env:
+          CUSTOM_DOMAIN: ${{ vars.PAGES_CUSTOM_DOMAIN }}
+        run: |
+          if [ -n "$CUSTOM_DOMAIN" ]; then
+            npm run build -- --base=/
+            echo "$CUSTOM_DOMAIN" > dist/CNAME
+            echo "::notice title=Custom domain::Publishing to https://$CUSTOM_DOMAIN"
+          else
+            npm run build -- --base=/${{ github.event.repository.name }}/
+            echo "::notice title=Default domain::Publishing to the repository subpath. Set the PAGES_CUSTOM_DOMAIN variable to use your own domain."
+          fi
+
+      # The workflow token is not allowed to create the Pages site, so check
+      # rather than fail: the job stays green and says what to switch on, and
+      # starts publishing as soon as Pages is enabled.
+      - name: Is Pages enabled?
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh api "repos/${{ github.repository }}/pages" >/dev/null 2>&1; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=GitHub Pages is off::Enable it at Settings -> Pages -> Build and deployment -> Source: GitHub Actions, then re-run this workflow. See rareform/DEPLOY.md."
+          fi
+
+      - name: Configure Pages
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/configure-pages@v5
+
+      - name: Upload
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: rareform/dist
+
+      - name: Deploy
+        id: deploy
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/deploy-pages@v4

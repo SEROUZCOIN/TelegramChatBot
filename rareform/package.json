@@ -1,0 +1,22 @@
+{
+  "name": "rareform-marketplace",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "description": "RAREFORM — a WebGL clothing marketplace with real-time 3D garment rendering, faceted search and a spatial commerce UI.",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "bundle": "vite build && node scripts/make-single-file.mjs"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.1.0",
+    "vite": "^7.2.1"
+  }
+}
