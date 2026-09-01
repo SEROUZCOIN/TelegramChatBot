@@ -5,7 +5,7 @@ Two independent Expert Advisors. They share nothing but the folder.
 | File | What it does | Trades? |
 |---|---|---|
 | `SignalBridge.mq5` | Publishes trades opened on your terminal to the platform as signals | No — reports only |
-| `GridBot_2X_AutoUpdate.mq5` | Two-sided martingale grid with basket exits | Yes — this one places real orders |
+| `GridBot_2X_AutoUpdate.mq5` | Self-configuring two-sided martingale grid | Yes — this one places real orders |
 
 ## SignalBridge
 
@@ -60,39 +60,66 @@ the server or the composer.
 
 ## GridBot_2X_AutoUpdate
 
-A two-sided grid of limit orders with martingale sizing, ATR-adaptive spacing, an
-EMA trend filter, and basket exits (fixed target, profit trail, emergency loss,
-drawdown percent, daily loss lock). Unlike SignalBridge, **this EA places real
-orders.** It requires a hedging account and refuses to start on a netting one.
+A two-sided grid of limit orders with martingale sizing and basket exits. Unlike
+SignalBridge, **this EA places real orders.** It requires a hedging account and
+refuses to start on a netting one.
 
-It is kept here as the reference implementation the `mt5-grid-ea` skill is written
-against, not as part of the signals platform — nothing in `apps/` or `packages/`
-imports or depends on it.
+It is kept here as the reference implementation the `mt5-grid-ea` skill is
+written against, not as part of the signals platform — nothing in `apps/` or
+`packages/` imports or depends on it.
 
-### Read before running it
+### It configures itself
 
-A full audit is in
-[`.claude/skills/mt5-grid-ea/references/gridbot-2x-review.md`](../.claude/skills/mt5-grid-ea/references/gridbot-2x-review.md).
-The two findings that decide whether it is safe to leave unattended:
+With `InpAutoConfigure` on (the default) you set a risk percentage and the EA
+derives the rest at the start of every cycle:
 
-- **Grid levels are identified by order comment.** Brokers may rewrite or truncate
-  comments, and a partial close returns an empty one. When that happens the EA
-  reads a level as empty and places a duplicate, which breaks both the lot ladder
-  and the exposure cap.
-- **The pause and daily-lock guards live only in memory.** After an emergency-loss
-  stop or a daily loss lock, recompiling or restarting the terminal clears the
-  flag and the EA resumes trading — the opposite of what the guard was for.
+| Derived | From |
+|---|---|
+| Grid distance | ATR, floored by the symbol's own spread, stops level and freeze level |
+| Levels per side | The most the risk budget can survive |
+| Base lot | Risk budget ÷ (step × tick value × ladder weight) |
+| Multiplier | `InpPreferredMultiplier` if it fits, stepped down if it does not |
+| Profit target, trail, emergency stop, exposure cap, daily loss limit | Percentages of equity |
 
-At the defaults the ladder is 0.01 / 0.02 / 0.04 / 0.08 / 0.16 = 0.31 lots, and
-level five carries sixteen times the risk of level one. Raising
-`InpLevelsPerSide` raises that exponentially; nothing in the file stops you.
+The solver's contract: **if the ladder fills to its deepest level and price runs
+one more step, the loss is about `InpRiskPercentPerCycle` of equity.** If no
+shape satisfies that on this symbol — usually because the minimum lot is too
+large for the account — the EA refuses to start and says so, rather than
+quietly trading a riskier ladder than you asked for.
+
+The chosen ladder is printed to the Experts log on every cycle, e.g.
+`Ladder per side: 0.01 / 0.02 / 0.04 / 0.08 = 0.15 lots | step 420 points`.
+Read it. It is the actual risk you are running.
+
+Set `InpAutoConfigure` to false to drive the fixed inputs instead; every safety
+mechanism behaves identically either way.
+
+### What it will not do for you
+
+Auto-sizing caps a loss; it does not remove one. This is still a martingale
+grid — the deepest level of a five-level 2.0× ladder carries sixteen times the
+risk of the first, and a grid's win rate stays high right up until it collapses.
+A smooth backtest is the expected appearance of a system that has not yet met
+its bad month, not evidence that it is safe.
+
+Two guards matter most, and both now survive a restart: the emergency-loss pause
+and the daily loss lock are written to terminal global variables and restored in
+`OnInit`, so recompiling or restarting the terminal no longer re-arms an EA that
+had stopped itself. If it starts paused, that is deliberate — delete its global
+variables to clear it.
 
 ### Setup
 
 Copy to `MQL5/Experts/`, compile in MetaEditor (F7), attach to one chart. It
-manages only the chart's symbol, and only orders carrying its own magic number,
-so a second instance on another chart is safe.
+manages only the chart's symbol, and only orders in its own magic-number range
+(`InpMagicNumber + 1` through `+ 200`, one per side per level), so a second
+instance on another chart is safe — give it a magic number at least 200 apart.
 
-Test it in the Strategy Tester on **Every tick based on real ticks** — a grid is
+Test in the Strategy Tester on **Every tick based on real ticks** — a grid is
 meaningless at open prices — and across a trending stretch rather than a calm
 range.
+
+### Design notes and audit
+
+The full review, including what the v2.00 code got wrong and how v3.00 fixes
+each item, is in `.claude/skills/mt5-grid-ea/references/gridbot-2x-review.md`.

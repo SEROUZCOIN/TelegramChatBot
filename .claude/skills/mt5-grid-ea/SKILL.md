@@ -9,8 +9,10 @@ A grid EA is a small amount of trading logic wrapped around a large amount of
 risk management. Reviews that only read the entry logic miss the part that
 actually decides whether the account survives.
 
-The worked example throughout is `mt5/GridBot_2X_AutoUpdate.mq5`. Its full audit
-is in `references/gridbot-2x-review.md`; the reusable architecture notes are in
+The worked example throughout is `mt5/GridBot_2X_AutoUpdate.mq5` — now v3.00,
+which derives its whole ladder from a risk percentage (see **Auto-configuration**
+below). `references/gridbot-2x-review.md` holds the audit of v2.00 together with
+what v3.00 changed for each finding; the reusable architecture notes are in
 `references/architecture.md`. For broker- and platform-level correctness — filling
 modes, stops and freeze levels, volume normalisation, retcodes — use the
 `mql5-trade-safety` skill instead; this skill assumes those rules and does not
@@ -86,6 +88,54 @@ in a global variable is lost on recompile, reattach, or terminal restart — so 
 guard that fired to stop the strategy silently re-arms it. Any state whose loss
 would let the EA resume trading against its own rules must be persisted and
 flushed, and re-read in `OnInit`.
+
+## Auto-configuration: deriving the ladder from a risk budget
+
+Asking an operator for base lot, levels, multiplier and step is asking four
+questions whose *joint* answer is the only thing that matters. Solve for them
+from one number instead — the equity they are willing to lose on a cycle.
+
+The arithmetic. Let `step_money` be the money one lot loses per grid step
+(`step_points × tick_value × _Point / tick_size`), and define the ladder's
+drawdown weight as
+
+```
+W(N, m) = Σ(i = 1..N) m^(i-1) × (N + 1 - i)
+```
+
+— each level's lots multiplied by the steps it is under water once the ladder
+has filled and price has run one step past the deepest level. Then
+
+```
+base_lot = risk_money / (step_money × W(N, m))
+```
+
+Search for the shape rather than assuming one: take the preferred multiplier and
+the most levels that yields a `base_lot` at or above `SYMBOL_VOLUME_MIN`, and
+step the multiplier down only when nothing fits. Three properties make this
+worth doing:
+
+- **It fails loudly.** When no shape fits — a small account on a symbol with a
+  1.0 minimum lot — the honest answer is `INIT_FAILED` with the reason, not a
+  ladder that quietly risks five times what was asked.
+- **It adapts to the symbol.** The same inputs produce a different ladder on
+  EURUSD and on US30, which is correct: they have different tick values, minimum
+  lots and stops levels.
+- **It re-solves per cycle**, so the ladder tracks equity as the account grows or
+  shrinks.
+
+Two cautions to state whenever you build this:
+
+- The `+1` in `W` matters. Without it a one-level ladder has weight zero and the
+  solver divides by zero; with it, the model is "filled and still moving", which
+  is the case that actually hurts.
+- The budget is **per side**. A two-sided grid can hold positions on both, though
+  in the trend that fills a ladder deeply only one side is deep.
+
+Freeze the solved shape for the life of the cycle and persist it, or a restart
+re-solves into a different ladder around orders placed against the old one.
+Money limits (target, emergency, daily loss) can safely track equity on restore;
+the lot ladder cannot.
 
 ## Adaptive spacing and direction filters
 

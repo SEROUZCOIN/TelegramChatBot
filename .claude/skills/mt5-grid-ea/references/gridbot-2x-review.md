@@ -1,7 +1,37 @@
-# Audit: GridBot_2X_AutoUpdate.mq5 v2.00
+# Audit: GridBot_2X_AutoUpdate.mq5
 
-Findings against `mt5/GridBot_2X_AutoUpdate.mq5`, most severe first. Line numbers
-are from that file.
+Findings against v2.00 of `mt5/GridBot_2X_AutoUpdate.mq5`, most severe first.
+Line numbers are from **v2.00**; the file in this repo is now v3.00, which
+applies the fixes and adds auto-configuration. The findings are kept in full
+because they are the worked examples the skill teaches from — each one is a
+mistake that is easy to make again.
+
+## Remediation status in v3.00
+
+| # | Finding | Status in v3.00 |
+|---|---|---|
+| 1 | Slot identity via order comment | Fixed — identity moved into the magic number (`SlotMagic`, `DecodeSlotMagic`); comments are labels only |
+| 2 | Risk guards lost on restart | Fixed — `g_paused` and `g_daily_lock_until` persisted and restored in `OnInit` |
+| 3 | No `GlobalVariablesFlush()` | Fixed — `SaveState()` flushes; also called from `OnDeinit` |
+| 4 | Gross profit target | Fixed — exit commission per lot learned from closed deals and subtracted |
+| 5 | `HistorySelect` on the tick path | Fixed — cached, recomputed on `DEAL_ADD` and day roll |
+| 6 | Unfiltered `OnTradeTransaction` | Fixed — filtered on `trans.symbol` and `trans.type` |
+| 7 | Freeze level unchecked | Fixed — `MinimumOrderDistancePrice()` takes `max(stops, freeze)`; frozen deletes reported distinctly |
+| 8 | Pending-order filling mode | Fixed — `ORDER_FILLING_RETURN` set around each pending, restored after |
+| 9 | Global log throttle | Fixed — throttled per retcode |
+| 10 | `NormalizeVolume` cap violation | Fixed — returns 0 and skips when the symbol minimum exceeds the cap |
+| 11 | Margin checked per order | Fixed — reserve budgeted against the whole ladder's lots |
+| 12 | Anchor inference takes first match | Fixed — median across all managed orders and positions |
+| 13 | Recentring order flood | Fixed — default threshold 2 steps plus a cooldown |
+| 14 | Cosmetic | Fixed — `#property strict` removed, dashboard throttled to 1 Hz |
+
+v3.00 also adds the auto-configuration layer described in
+`architecture.md`, which introduces its own thing to review: the ladder solver
+is only as honest as its risk model. Its stated contract is that a fully filled
+ladder plus one more step of adverse movement costs about
+`InpRiskPercentPerCycle` of equity — that is a *per-side* worst case, and it
+assumes the step holds. A gap straight through the ladder, or a symbol whose
+tick value moves with price, will exceed it.
 
 The EA is well above the average grid bot: it requires a hedging account, refuses
 bad inputs, normalises volume and price, checks retcodes, caps total exposure,
