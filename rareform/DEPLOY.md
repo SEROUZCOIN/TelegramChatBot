@@ -41,8 +41,39 @@ https://serouzcoin.github.io/TelegramChatBot/
 Open it from any PC or phone — no sign-in, nothing to install. Every later push
 that touches `rareform/` republishes it.
 
-GitHub Pages will not serve a custom domain with the site in a subpath the way
-this repository is laid out, so for your own domain use Cloudflare below.
+### Your own domain on GitHub Pages
+
+You need to own the domain first — buy it from any registrar (Namecheap,
+Cloudflare Registrar, Porkbun, GoDaddy). Nothing here can register one for you.
+
+Once you own it, two steps:
+
+1. **Settings → Secrets and variables → Actions → Variables → New variable**
+
+   | Name | Value |
+   |---|---|
+   | `PAGES_CUSTOM_DOMAIN` | `example.com` |
+
+   The build reads it, switches the base path to the domain root and writes the
+   `CNAME` file. Without it the site keeps publishing to the repository subpath.
+
+2. At your DNS provider, point the domain at GitHub:
+
+   | Name | Type | Value |
+   |---|---|---|
+   | `@` | `A` | `185.199.108.153` |
+   | `@` | `A` | `185.199.109.153` |
+   | `@` | `A` | `185.199.110.153` |
+   | `@` | `A` | `185.199.111.153` |
+   | `www` | `CNAME` | `serouzcoin.github.io` |
+
+   For a subdomain only (`shop.example.com`), skip the `A` records and use a
+   single `CNAME` to `serouzcoin.github.io`.
+
+Then push, or re-run the workflow. Confirm the records against **Settings →
+Pages → Custom domain**, which validates them and issues the certificate —
+follow that screen over this table if they disagree. Tick **Enforce HTTPS**
+once the certificate is ready.
 
 ---
 
