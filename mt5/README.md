@@ -1,4 +1,17 @@
-# MetaTrader 5 bridge
+# MetaTrader 5
+
+Two independent MT5 programs live here:
+
+| File | What it does |
+|---|---|
+| `SignalBridge.mq5` | Publishes trades from your terminal to the platform as signals. Reports only. |
+| `XAUUSD_GridFib_BOS_CHOCH.mq5` | A gold Expert Advisor: BOS/CHOCH structure entries with a capped recovery grid. Trades. |
+
+The EA is documented on its own in
+[`XAUUSD_GridFib_BOS_CHOCH.md`](XAUUSD_GridFib_BOS_CHOCH.md); the rest of this
+page is about the bridge.
+
+## SignalBridge
 
 `SignalBridge.mq5` publishes trades opened on your MT5 terminal to the platform
 as signals. It only reports — it never opens, modifies, or closes a position.
