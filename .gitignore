@@ -20,6 +20,12 @@ android/
 *.p12
 *.mobileprovision
 
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
 # local data
 infra/data/
 uploads/

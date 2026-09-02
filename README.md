@@ -9,7 +9,28 @@ admin control panel, and a Telegram subscriber bot.
 | `apps/api` | NestJS + Fastify, Prisma, PostgreSQL, Redis |
 | `apps/admin` | Next.js 15 App Router |
 | `packages/shared` | Zod contracts, signal state machine, pip & R:R math |
-| `mt5/` | MetaTrader 5 Expert Advisor bridge |
+| `mt5/` | MetaTrader 5: the signal bridge, and the Grid Fibonacci EA |
+| `tools/dashboard` | Dash + Plotly 3D control room for the EA |
+
+## Trading automation
+
+`mt5/GridFibonacciEA/` is a standalone Expert Advisor — a grid whose ladder is
+bounded by market structure rather than by a level count. It enters on
+Fibonacci retracements of confirmed impulse legs, gated by a triple moving
+average stack, an ATR-normalised slope and ADX; stops sit at structural
+invalidation and targets on the 1.272 / 1.618 / 2.618 extensions.
+
+`tools/dashboard/` renders it live in 3D: the grid ladder, a basket P/L surface
+over price move and ladder depth, and the equity path plotted against its own
+drawdown. It reads the EA's telemetry over HTTP, a local MT5 terminal directly,
+or a built-in demo feed.
+
+```bash
+cd tools/dashboard && pip install -r requirements.txt && python app.py --demo
+```
+
+Neither piece touches the signals platform below — they share the repository,
+not a runtime.
 
 ## Plans
 
