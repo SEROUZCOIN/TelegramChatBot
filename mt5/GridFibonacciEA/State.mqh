@@ -35,13 +35,12 @@ public:
                                 level(lv), ticket(tk), requested(req), filled(fill),
                                 lots(vol), opened(t), closedPL(0), closed(false) {}
 
-   //--- sorted access by level index
-   virtual int       Compare(const CObject *node, const int mode = 0) const override
-     {
-      const CGridLevel *o = (const CGridLevel*)node;
-      if(o == NULL) return 1;
-      return (level > o.level) - (level < o.level);
-     }
+   //--- No Compare() override. It would only serve CArrayObj::Sort/Search,
+   //--- neither of which this project calls: levels are appended in ladder
+   //--- order, so insertion order IS level order. Leaving the override out
+   //--- also removes a signature that must match CObject exactly across MT5
+   //--- builds, which is a compile failure waiting for a terminal we cannot
+   //--- test against.
   };
 
 //+------------------------------------------------------------------+
