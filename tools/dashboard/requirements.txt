@@ -1,0 +1,9 @@
+# Grid Fibonacci Pro dashboard
+dash>=2.17,<4
+plotly>=5.22
+flask>=3.0
+numpy>=1.26
+
+# Optional: only needed for `python app.py --mt5` (Windows + a running
+# MetaTrader 5 terminal). The EA telemetry feed works without it on any OS.
+# MetaTrader5>=5.0.45

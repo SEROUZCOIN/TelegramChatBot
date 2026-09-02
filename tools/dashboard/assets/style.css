@@ -1,0 +1,162 @@
+/* Grid Fibonacci Pro — control room shell.
+   The palette mirrors theme.py exactly; change both together. */
+
+:root {
+  --bg-deep:   #05070d;
+  --bg-panel:  #0a1018;
+  --bg-raised: #0f1724;
+  --border:    #1c2b40;
+  --neon:      #00e5ff;
+  --neon-dim:  #0b6d7d;
+  --gold:      #ffc72c;
+  --green:     #00e696;
+  --red:       #ff4a6e;
+  --amber:     #ffa42e;
+  --text:      #e2eef5;
+  --text-dim:  #7a8c9e;
+  --mono: Consolas, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  --ui: "Segoe UI", Inter, system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-deep);
+  color: var(--text);
+  font-family: var(--mono);
+  /* the faint scanline grid that makes the dark ground read as a surface */
+  background-image:
+    radial-gradient(circle at 12% -10%, rgba(0, 229, 255, 0.10), transparent 45%),
+    radial-gradient(circle at 88% 0%, rgba(255, 199, 44, 0.07), transparent 40%),
+    linear-gradient(rgba(28, 43, 64, 0.35) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(28, 43, 64, 0.35) 1px, transparent 1px);
+  background-size: auto, auto, 44px 44px, 44px 44px;
+  background-attachment: fixed;
+}
+
+.shell { padding: 16px 18px 28px; max-width: 1900px; margin: 0 auto; }
+
+/* ---------------- top bar ---------------- */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+  padding: 12px 16px; margin-bottom: 14px;
+  background: linear-gradient(90deg, var(--bg-raised), rgba(10, 16, 24, 0.6));
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--neon);
+  border-radius: 4px;
+}
+
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-name {
+  font-family: var(--ui); font-weight: 600; font-size: 17px;
+  letter-spacing: 2.5px; color: var(--neon);
+  text-shadow: 0 0 14px rgba(0, 229, 255, 0.45);
+}
+.brand-sub { font-size: 10px; letter-spacing: 3px; color: var(--text-dim); }
+
+.pulse {
+  width: 11px; height: 11px; border-radius: 50%;
+  background: var(--text-dim);
+  animation: breathe 2.4s ease-in-out infinite;
+}
+@keyframes breathe { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+.instrument { display: flex; align-items: baseline; gap: 12px; }
+.instrument .sym { font-size: 20px; letter-spacing: 2px; color: var(--gold); }
+.instrument .tf {
+  font-size: 11px; color: var(--text-dim);
+  border: 1px solid var(--border); border-radius: 3px; padding: 1px 6px;
+}
+.instrument .px { font-size: 18px; color: var(--text); }
+
+.status { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip {
+  font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+  color: var(--text-dim); background: rgba(28, 43, 64, 0.45);
+  border: 1px solid var(--border); border-radius: 3px; padding: 3px 8px;
+}
+.chip.live { color: var(--green); border-color: rgba(0, 230, 150, 0.5); }
+.chip.stale { color: var(--red); border-color: rgba(255, 74, 110, 0.5); }
+.chip.dim { opacity: 0.65; }
+
+/* ---------------- banner ---------------- */
+.banner {
+  padding: 9px 14px; margin-bottom: 14px; border-radius: 4px;
+  font-size: 12px; letter-spacing: 1px;
+  border: 1px solid var(--border);
+}
+.banner.hidden { display: none; }
+.banner.halt { color: var(--red); border-color: var(--red); background: rgba(255, 74, 110, 0.08); }
+.banner.warn { color: var(--amber); border-color: rgba(255, 164, 46, 0.5); background: rgba(255, 164, 46, 0.07); }
+.banner.ok { color: var(--green); border-color: rgba(0, 230, 150, 0.5); background: rgba(0, 230, 150, 0.07); }
+
+/* ---------------- tiles ---------------- */
+.tiles {
+  display: grid; gap: 10px; margin-bottom: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+}
+.tile {
+  background: linear-gradient(160deg, var(--bg-panel), rgba(5, 7, 13, 0.85));
+  border: 1px solid var(--border); border-top: 2px solid var(--neon-dim);
+  border-radius: 4px; padding: 10px 12px;
+  transition: border-color 0.25s ease, transform 0.25s ease;
+}
+.tile:hover { border-top-color: var(--neon); transform: translateY(-2px); }
+.tile-label { font-size: 9.5px; letter-spacing: 2px; color: var(--text-dim); }
+.tile-value { font-size: 21px; margin-top: 4px; color: var(--text); }
+.tile-sub { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+
+/* ---------------- cards ---------------- */
+.grid-2 {
+  display: grid; gap: 12px; margin-bottom: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
+}
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 8px 10px 6px;
+}
+.card-title {
+  font-family: var(--ui); font-size: 11px; letter-spacing: 2px;
+  color: var(--gold); padding: 2px 4px 8px;
+}
+
+/* ---------------- tables & log ---------------- */
+.table-wrap, .log-wrap { max-height: 260px; overflow: auto; }
+table.levels { width: 100%; border-collapse: collapse; font-size: 11px; }
+table.levels th {
+  text-align: left; font-weight: 400; letter-spacing: 1.5px;
+  color: var(--text-dim); font-size: 9.5px;
+  border-bottom: 1px solid var(--border); padding: 5px 6px;
+  position: sticky; top: 0; background: var(--bg-panel);
+}
+table.levels td { padding: 5px 6px; border-bottom: 1px solid rgba(28, 43, 64, 0.5); }
+table.levels tr:hover td { background: rgba(0, 229, 255, 0.05); }
+
+.log-row {
+  display: flex; gap: 10px; font-size: 11px; padding: 4px 6px;
+  border-bottom: 1px solid rgba(28, 43, 64, 0.45);
+}
+.log-time { color: var(--neon-dim); min-width: 62px; }
+.log-text { color: var(--text-dim); }
+.empty { color: var(--text-dim); font-size: 11px; padding: 12px 6px; }
+
+.footer {
+  text-align: center; font-size: 10px; letter-spacing: 1.5px;
+  color: var(--text-dim); opacity: 0.6; margin-top: 18px;
+}
+
+/* scrollbars, so the panes match the rest of the surface */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--bg-deep); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--neon-dim); }
+
+@media (max-width: 620px) {
+  .grid-2 { grid-template-columns: 1fr; }
+  .shell { padding: 10px; }
+}

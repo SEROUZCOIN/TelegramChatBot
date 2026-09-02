@@ -1,3 +1,15 @@
+# MetaTrader 5
+
+Two independent programs live here.
+
+| Program | What it does |
+|---|---|
+| `SignalBridge.mq5` | Publishes trades you place to the platform as signals. Reports only — never trades. |
+| [`GridFibonacciEA/`](GridFibonacciEA/) | A Fibonacci grid Expert Advisor that trades on its own, with an on-chart neon panel and a [3D Python dashboard](../tools/dashboard/). |
+
+The rest of this file documents the bridge; the EA has
+[its own README](GridFibonacciEA/README.md).
+
 # MetaTrader 5 bridge
 
 `SignalBridge.mq5` publishes trades opened on your MT5 terminal to the platform
