@@ -69,7 +69,11 @@ spread and session filters, and a panic halt on the panel.
 
 ## Setup
 
-1. Copy the `GridFibonacciEA` folder into `MQL5\Experts\`.
+**[INSTALL.md](INSTALL.md) is the step-by-step version, with screenshots of the
+menus and a troubleshooting table.** The short form:
+
+1. Copy the `GridFibonacciEA` folder into `MQL5\Experts\` (MT5 → **File → Open
+   Data Folder**). All eleven files must stay together.
 2. Open `GridFibonacciEA.mq5` in MetaEditor and press **F7**.
 3. Attach it to one chart. It trades that chart's symbol only — run one
    instance per symbol, each with its own magic number.
