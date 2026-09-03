@@ -14,8 +14,8 @@
 #property description "Built for M1 / M5 / M15 / M30 / H1 / H4 scalping and intraday trading."
 
 #property indicator_chart_window
-#property indicator_buffers 4
-#property indicator_plots   4
+#property indicator_buffers 8
+#property indicator_plots   8
 
 #property indicator_label1  "GFP Buy"
 #property indicator_type1   DRAW_ARROW
@@ -32,6 +32,19 @@
 
 #property indicator_label4  "GFP Score"       // confluence score 0..8      (EA reads via iCustom)
 #property indicator_type4   DRAW_NONE
+
+//--- البافرات 5..8 تُصدّر حالة الموجة والمنطقة الذهبية لأي إكسبيرت عبر iCustom
+#property indicator_label5  "GFP LegDir"      // +1 up leg / -1 down leg / 0 none
+#property indicator_type5   DRAW_NONE
+
+#property indicator_label6  "GFP ZoneHigh"    // Golden Zone upper price (0 = none)
+#property indicator_type6   DRAW_NONE
+
+#property indicator_label7  "GFP ZoneLow"     // Golden Zone lower price (0 = none)
+#property indicator_type7   DRAW_NONE
+
+#property indicator_label8  "GFP LegOrigin"   // leg 1.000 level = invalidation price (0 = none)
+#property indicator_type8   DRAW_NONE
 
 //+------------------------------------------------------------------+
 //| TYPES — التعدادات المستخدمة في الإدخالات                          |
@@ -255,6 +268,10 @@ double g_bufBuy[];
 double g_bufSell[];
 double g_bufSignal[];
 double g_bufScore[];
+double g_bufLegDir[];      // اتجاه الموجة النشطة عند كل شمعة
+double g_bufZoneHi[];      // الحد الأعلى للمنطقة الذهبية
+double g_bufZoneLo[];      // الحد الأدنى للمنطقة الذهبية
+double g_bufLegOrig[];     // مستوى 1.000 (نقطة إبطال الموجة)
 
 //--- cached indicator series of the CHART timeframe (indexed by absolute bar)
 double g_emaF[];
@@ -1488,6 +1505,10 @@ int OnInit()
    SetIndexBuffer(1, g_bufSell,   INDICATOR_DATA);
    SetIndexBuffer(2, g_bufSignal, INDICATOR_DATA);
    SetIndexBuffer(3, g_bufScore,  INDICATOR_DATA);
+   SetIndexBuffer(4, g_bufLegDir,  INDICATOR_DATA);
+   SetIndexBuffer(5, g_bufZoneHi,  INDICATOR_DATA);
+   SetIndexBuffer(6, g_bufZoneLo,  INDICATOR_DATA);
+   SetIndexBuffer(7, g_bufLegOrig, INDICATOR_DATA);
 
    PlotIndexSetInteger(0, PLOT_ARROW, ARROW_BUY_CODE);
    PlotIndexSetInteger(1, PLOT_ARROW, ARROW_SELL_CODE);
@@ -1495,6 +1516,10 @@ int OnInit()
    PlotIndexSetDouble(1, PLOT_EMPTY_VALUE, EMPTY_VALUE);
    PlotIndexSetDouble(2, PLOT_EMPTY_VALUE, 0.0);
    PlotIndexSetDouble(3, PLOT_EMPTY_VALUE, 0.0);
+   PlotIndexSetDouble(4, PLOT_EMPTY_VALUE, 0.0);
+   PlotIndexSetDouble(5, PLOT_EMPTY_VALUE, 0.0);
+   PlotIndexSetDouble(6, PLOT_EMPTY_VALUE, 0.0);
+   PlotIndexSetDouble(7, PLOT_EMPTY_VALUE, 0.0);
 
    g_warmup = (int)MathMax(InpSwingN * 2 + 2, MathMax(InpEmaSlow, InpRsiPeriod) + 2);
    g_warmup = (int)MathMax(g_warmup, InpAtrPeriod + 2);
@@ -1613,8 +1638,12 @@ int OnCalculate(const int rates_total, const int prev_calculated,
      {
       ArrayInitialize(g_bufBuy,    EMPTY_VALUE);
       ArrayInitialize(g_bufSell,   EMPTY_VALUE);
-      ArrayInitialize(g_bufSignal, 0.0);
-      ArrayInitialize(g_bufScore,  0.0);
+      ArrayInitialize(g_bufSignal,  0.0);
+      ArrayInitialize(g_bufScore,   0.0);
+      ArrayInitialize(g_bufLegDir,  0.0);
+      ArrayInitialize(g_bufZoneHi,  0.0);
+      ArrayInitialize(g_bufZoneLo,  0.0);
+      ArrayInitialize(g_bufLegOrig, 0.0);
       g_st.Reset();
       start = limitStart;
      }
@@ -1638,8 +1667,12 @@ int OnCalculate(const int rates_total, const int prev_calculated,
      {
       g_bufBuy[i]    = EMPTY_VALUE;
       g_bufSell[i]   = EMPTY_VALUE;
-      g_bufSignal[i] = 0.0;
-      g_bufScore[i]  = 0.0;
+      g_bufSignal[i]  = 0.0;
+      g_bufScore[i]   = 0.0;
+      g_bufLegDir[i]  = 0.0;
+      g_bufZoneHi[i]  = 0.0;
+      g_bufZoneLo[i]  = 0.0;
+      g_bufLegOrig[i] = 0.0;
 
       //--- 1) تأكيد القمم والقيعان (على شموع مغلقة فقط لمنع إعادة الرسم)
       if(i <= rates_total - 2)
@@ -1673,7 +1706,18 @@ int OnCalculate(const int rates_total, const int prev_calculated,
            }
         }
 
-      //--- 3) الإشارات على الشموع المغلقة فقط
+      //--- 3) تصدير حالة الموجة والمنطقة الذهبية (تُقرأ من الإكسبيرت عبر iCustom)
+      if(g_st.legValid)
+        {
+         double zA = FibRetPrice(InpGZ_Start);
+         double zB = FibRetPrice(InpGZ_End);
+         g_bufLegDir[i]  = (double)g_st.legDir;
+         g_bufZoneHi[i]  = MathMax(zA, zB);
+         g_bufZoneLo[i]  = MathMin(zA, zB);
+         g_bufLegOrig[i] = g_st.legStartPrice;
+        }
+
+      //--- 4) الإشارات على الشموع المغلقة فقط
       if(!InpShowArrows || i > rates_total - 2)
          continue;
 
@@ -1703,7 +1747,7 @@ int OnCalculate(const int rates_total, const int prev_calculated,
          FireAlert(dir, close[i], score, time[i]);
      }
 
-   //--- 4) تحديث الرسومات عند شمعة جديدة أو تغيّر الموجة
+   //--- 5) تحديث الرسومات عند شمعة جديدة أو تغيّر الموجة
    datetime curBarTime = time[rates_total - 1];
    if(g_uiEnabled && (legChanged || curBarTime != g_st.lastBarTime))
      {

@@ -5,6 +5,9 @@ with confluence-scored Buy/Sell arrows and a futuristic multi-timeframe dashboar
 
 Single file, zero dependencies: `GannFiboPro.mq5`.
 
+A companion martingale EA that trades these levels ships alongside it —
+see **[README-EA.md](README-EA.md)** for `GannFiboProEA.mq5`.
+
 ---
 
 ## 1. Installation
@@ -99,17 +102,28 @@ are only confirmed from closed bars, so an arrow never appears and disappears on
 The drawn *levels* do move when a new swing confirms — that is the intended behaviour of any
 auto-Fibonacci/Gann tool, not repainting of the signals.
 
-### 2.7 EA integration
-Buffers 2 and 3 are exposed for automation:
+### 2.7 EA integration — exported buffers
+
+| Buffer | Contents | Read at |
+|---|---|---|
+| 0 | Buy arrow price | signal bar |
+| 1 | Sell arrow price | signal bar |
+| 2 | Signal: `+1` buy, `-1` sell, `0` none | shift 1 (last closed bar) |
+| 3 | Confluence score, 0–8 | shift 1 |
+| 4 | Leg direction: `+1` up leg, `-1` down leg, `0` none | shift 0 |
+| 5 | Golden Zone upper price (`0` = none) | shift 0 |
+| 6 | Golden Zone lower price (`0` = none) | shift 0 |
+| 7 | Leg origin = the 1.000 invalidation level (`0` = none) | shift 0 |
 
 ```mql5
-int h = iCustom(_Symbol, PERIOD_CURRENT, "GannFiboPro\\GannFiboPro" /*, inputs... */);
-double sig[1], sco[1];
-CopyBuffer(h, 2, 1, 1, sig);   // +1 buy, -1 sell, 0 none  (shift 1 = last closed bar)
-CopyBuffer(h, 3, 1, 1, sco);   // confluence score 0..8
+int h = iCustom(_Symbol, PERIOD_CURRENT, "GannFiboPro\\GannFiboPro");  // defaults
+double sig[1], zoneHi[1];
+CopyBuffer(h, 2, 1, 1, sig);      // signal on the last closed bar
+CopyBuffer(h, 5, 0, 1, zoneHi);   // live Golden Zone upper bound
 ```
 
-Buffer 0 = buy arrow price, buffer 1 = sell arrow price.
+Buffers 4–7 exist so an EA never has to re-derive the swing/leg/zone logic — the
+bundled `GannFiboProEA.mq5` reads exactly these.
 
 ---
 
@@ -249,7 +263,6 @@ or wrap it in an EA via `iCustom` and test that.
 * Order blocks, FVG and liquidity-sweep detection layered onto the same impulse leg.
 * Gann Square of 9 time cycles (vertical time lines), not just price levels.
 * Volume-profile POC/VAH/VAL inside the Golden Zone for confluence.
-* A companion EA that trades the buffers with risk-based lot sizing, break-even and partial closes.
 * Telegram delivery of signals with a chart snapshot.
 * Auto-optimising `InpSwingN` from realised volatility instead of a fixed input.
 * Session filter (London / New York) and a news blackout window.

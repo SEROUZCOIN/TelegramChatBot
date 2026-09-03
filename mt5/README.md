@@ -51,7 +51,11 @@ the server or the composer.
 
 ## Other MT5 tools in this folder
 
-- **[`GannFiboPro/`](GannFiboPro/README.md)** — standalone chart indicator: Gann fan,
-  auto trendlines, Fibonacci Golden Zone (OTE), Gann Square of 9, daily pivots,
-  confluence-scored Buy/Sell arrows and a multi-timeframe dashboard. It is analysis only —
-  it does not trade and is unrelated to the signal bridge above.
+- **[`GannFiboPro/`](GannFiboPro/README.md)** — chart indicator: Gann fan, auto trendlines,
+  Fibonacci Golden Zone (OTE), Gann Square of 9, daily pivots, confluence-scored Buy/Sell
+  arrows and a multi-timeframe dashboard.
+- **[`GannFiboPro/GannFiboProEA.mq5`](GannFiboPro/README-EA.md)** — martingale EA that trades
+  the indicator's Golden Zone and arrows, with basket TP/SL, break-even, trailing and a
+  buy-only / sell-only switch.
+
+Both are independent of the signal bridge above.
