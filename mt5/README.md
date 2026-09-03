@@ -46,3 +46,12 @@ the server or the composer.
   rather than decoration: the platform scores a later stop-out *after* a
   break-even move as a scratch rather than a loss, so the published win rate
   stays honest.
+
+---
+
+## Other MT5 tools in this folder
+
+- **[`GannFiboPro/`](GannFiboPro/README.md)** — standalone chart indicator: Gann fan,
+  auto trendlines, Fibonacci Golden Zone (OTE), Gann Square of 9, daily pivots,
+  confluence-scored Buy/Sell arrows and a multi-timeframe dashboard. It is analysis only —
+  it does not trade and is unrelated to the signal bridge above.
