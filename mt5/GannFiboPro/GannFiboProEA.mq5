@@ -60,10 +60,11 @@ input int            InpBreakEvenAt    = 120;        // Move to break-even after
 input int            InpBreakEvenLock  = 20;         // Points locked in at break-even
 
 input group "=========  7. PROTECTION  ========="
-input int            InpMaxSpread      = 30;         // Max spread for new entries (points, 0 = off)
+input int            InpMaxSpread      = 0;          // Max spread for new entries (points, 0 = off)
 input double         InpEquityStopPct  = 30.0;       // Halt and close all at this equity drawdown % (0 = off)
 input long           InpMagic          = 20260903;   // Magic number
 input int            InpSlippage       = 20;         // Slippage (points)
+input bool           InpDebug          = true;       // Log why an entry was not taken (once per bar)
 
 //+------------------------------------------------------------------+
 //| CONSTANTS                                                        |
@@ -534,13 +535,30 @@ bool CheckSoftExits(const int dir, const double avgPrice)
 //|                    E N T R Y   L O G I C                         |
 //+------------------------------------------------------------------+
 
-//--- السعر داخل المنطقة الذهبية؟
+//--- السعر داخل حدود المنطقة الذهبية تماماً (للعرض على الشارت فقط)
 bool PriceInZone(const SIndSnap &s)
   {
    if(s.zoneHi <= 0.0 || s.zoneLo <= 0.0)
       return false;
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    return (bid <= s.zoneHi && bid >= s.zoneLo);
+  }
+
+//--- شرط الدخول: هل بلغ السعر منطقة الخصم؟
+//    الموجة تُؤكَّد بعد InpSwingN شمعة من تكوّن القمة/القاع، وفي التصحيح السريع
+//    يكون السعر قد عبر شريط 0.618-0.786 كاملاً قبل أن تظهر الموجة أصلاً.
+//    لذلك الشرط هو "بلغ حافة 0.618 وما زال داخل الموجة" وليس "داخل الشريط الآن"،
+//    وإلا لا تُفتح أي صفقة على الحركات السريعة.
+bool ZoneReached(const SIndSnap &s)
+  {
+   if(s.zoneHi <= 0.0 || s.zoneLo <= 0.0 || s.legOrigin <= 0.0)
+      return false;
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   if(s.legDir > 0)
+      return (bid <= s.zoneHi && bid > s.legOrigin);    // من 0.618 نزولاً حتى 1.000
+   if(s.legDir < 0)
+      return (bid >= s.zoneLo && bid < s.legOrigin);    // من 0.618 صعوداً حتى 1.000
+   return false;
   }
 
 //--- هل هذه الموجة استُهلكت بالفعل بدخول المنطقة الذهبية؟
@@ -561,7 +579,7 @@ void TryZoneEntry(const SIndSnap &s)
       return;                                   // السلة مفتوحة — هذا دخول أول فقط
    if(s.legDir == 0 || !DirectionAllowed(s.legDir))
       return;
-   if(!PriceInZone(s))
+   if(!ZoneReached(s))
       return;
    if(ZoneAlreadyTraded(s))
       return;
@@ -634,6 +652,46 @@ void TryDistanceEntry()
                 StringFormat("martingale step %d", g_ea.tradesInCycle + 1));
   }
 
+//--- تشخيص: لماذا لم تُفتح صفقة؟ سطر واحد لكل شمعة
+void DebugEntryState(const SIndSnap &s)
+  {
+   if(!InpDebug || MQLInfoInteger(MQL_OPTIMIZATION))
+      return;
+   static datetime lastBar = 0;
+   datetime bar = iTime(_Symbol, PERIOD_CURRENT, 0);
+   if(bar == 0 || bar == lastBar)
+      return;
+   lastBar = bar;
+
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   string why;
+
+   if(g_ea.halted)
+      why = "EA is halted by the equity stop — re-attach it to resume";
+   else if(InpMaxSpread > 0 && SpreadPoints() > InpMaxSpread)
+      why = StringFormat("spread %d exceeds InpMaxSpread %d", SpreadPoints(), InpMaxSpread);
+   else if(g_ea.tradesInCycle > 0)
+      why = StringFormat("basket already open (%d/%d)", g_ea.tradesInCycle, InpMaxTrades);
+   else if(!InpEntryZoneTouch && !InpEntryOnArrow)
+      why = "both entry modes are off";
+   else if(s.legDir == 0)
+      why = "the indicator reports no valid impulse leg yet";
+   else if(!DirectionAllowed(s.legDir))
+      why = StringFormat("leg is %s but InpDirection blocks that side",
+                         (s.legDir > 0 ? "UP (buy)" : "DOWN (sell)"));
+   else if(ZoneAlreadyTraded(s))
+      why = "this leg was already traded — waiting for the next impulse";
+   else if(!ZoneReached(s))
+      why = StringFormat("price %s has not reached the discount region (0.618 %s, origin %s)",
+                         DoubleToString(bid, _Digits),
+                         DoubleToString(s.legDir > 0 ? s.zoneHi : s.zoneLo, _Digits),
+                         DoubleToString(s.legOrigin, _Digits));
+   else
+      why = "all gates open — an entry should fire on the next tick";
+
+   Log("entry check: " + why);
+  }
+
 //+------------------------------------------------------------------+
 //|                    P R O T E C T I O N                           |
 //+------------------------------------------------------------------+
@@ -696,7 +754,7 @@ void ShowStatus(const SIndSnap &s, const int count, const double vol,
                    legTxt,
                    (s.zoneLo > 0.0 ? DoubleToString(s.zoneLo, _Digits) : "-"),
                    (s.zoneHi > 0.0 ? DoubleToString(s.zoneHi, _Digits) : "-"),
-                   (PriceInZone(s) ? "[PRICE IN ZONE]" : ""),
+                   (PriceInZone(s) ? "[IN ZONE]" : (ZoneReached(s) ? "[DISCOUNT - entry armed]" : "")),
                    dirTxt, count, InpMaxTrades, vol,
                    (avg > 0.0 ? DoubleToString(avg, _Digits) : "-"),
                    profit, BasketProfitPoints(g_ea.cycleDir, avg),
@@ -757,7 +815,7 @@ int OnInit()
    g_trade.LogLevel(LOG_LEVEL_ERRORS);
 
    //--- مقبض المؤشر (يستخدم إعداداته الافتراضية)
-   g_hInd = iCustom(_Symbol, PERIOD_CURRENT, InpIndName);
+   g_hInd = iCustom(_Symbol, PERIOD_CURRENT, InpIndName, true);   // true = InpEaMode: no drawings/panel
    if(g_hInd == INVALID_HANDLE)
      {
       Log(StringFormat("cannot load indicator '%s' — compile it first, err=%d",
@@ -827,12 +885,21 @@ void OnTick()
      }
 
    //--- 3) لقطة المؤشر
+   static bool linkLogged = false;
    SIndSnap s;
    if(!ReadIndicator(s))
      {
       if(!MQLInfoInteger(MQL_OPTIMIZATION))
          Comment("GannFiboPro EA  |  waiting for the indicator to calculate...");
       return;                                   // لا قرارات على بيانات ناقصة
+     }
+
+   if(!linkLogged)
+     {
+      linkLogged = true;
+      Log(StringFormat("indicator link OK — legDir=%d zone %s..%s origin %s",
+                       s.legDir, DoubleToString(s.zoneLo, _Digits),
+                       DoubleToString(s.zoneHi, _Digits), DoubleToString(s.legOrigin, _Digits)));
      }
 
    //--- 4) إدارة السلة القائمة
@@ -853,9 +920,10 @@ void OnTick()
    if(spreadOk && !g_ea.halted)
      {
       TryArrowEntry(s);         // السهم أولاً: قد يغلق السلة عند الانعكاس
-      TryZoneEntry(s);          // الدخول الأول عند لمس المنطقة الذهبية
+      TryZoneEntry(s);          // الدخول الأول عند بلوغ منطقة الخصم
       TryDistanceEntry();       // مضاعفات المسافة
      }
+   DebugEntryState(s);
 
    //--- 6) الحالة على الشارت
    BasketInfo(count, vol, avg, profit, dir);

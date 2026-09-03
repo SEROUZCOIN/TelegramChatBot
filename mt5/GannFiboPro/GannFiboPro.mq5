@@ -80,6 +80,10 @@ enum ENUM_PANEL_CORNER
 //+------------------------------------------------------------------+
 //| CONFIG — الإدخالات                                                |
 //+------------------------------------------------------------------+
+input group "=========  0. RUN MODE  ========="
+//--- أول إدخال عمداً: الإكسبيرت يمرره وحده عبر iCustom(sym, tf, name, true)
+input bool              InpEaMode            = false;    // EA mode: no drawings, no dashboard (for iCustom)
+
 input group "=========  1. STRUCTURE / SWING ENGINE  ========="
 input int               InpSwingN            = 5;        // Swing strength (bars each side)
 input int               InpMaxBars           = 3000;     // Max bars to calculate (0 = all)
@@ -1498,7 +1502,9 @@ int OnInit()
      }
 
    g_prefix    = "GFP" + IntegerToString(ChartID()) + "_";
-   g_uiEnabled = !MQLInfoInteger(MQL_OPTIMIZATION);
+   //--- في وضع الإكسبيرت لا رسم ولا لوحة: نسخة iCustom تشارك نفس الشارت والبادئة
+   //--- مع النسخة المرئية، فتتصادم الكائنات وتُحذف عند إنهاء أيهما.
+   g_uiEnabled = (!MQLInfoInteger(MQL_OPTIMIZATION) && !InpEaMode);
 
    //--- البافرات
    SetIndexBuffer(0, g_bufBuy,    INDICATOR_DATA);

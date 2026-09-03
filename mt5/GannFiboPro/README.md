@@ -104,6 +104,12 @@ auto-Fibonacci/Gann tool, not repainting of the signals.
 
 ### 2.7 EA integration — exported buffers
 
+`InpEaMode` is deliberately the **first** input. An EA that loads the indicator through `iCustom`
+passes `true` for it and nothing else, which suppresses every chart object, the dashboard, its
+extra timeframe handles and the timer — without it, the EA's hidden copy fights the visible copy
+over identically named objects on the same chart.
+
+
 | Buffer | Contents | Read at |
 |---|---|---|
 | 0 | Buy arrow price | signal bar |
@@ -128,6 +134,11 @@ bundled `GannFiboProEA.mq5` reads exactly these.
 ---
 
 ## 3. Input reference
+
+### 0. Run mode
+| Input | Default | Description |
+|---|---|---|
+| `InpEaMode` | false | Headless mode for `iCustom`: buffers only, no drawings or dashboard. Leave `false` on a chart. Must stay the first input — `iCustom` parameters are positional. |
 
 ### 1. Structure / swing engine
 | Input | Default | Description |

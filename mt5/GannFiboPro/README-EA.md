@@ -29,15 +29,23 @@ stays correct — but you lose per-rung visibility. The EA logs which mode it de
 
 One **cycle** = one basket of same-direction positions, opened, managed and closed together.
 
-### Entry 1 — Golden Zone touch (*before* the arrow)
-The first position opens the moment price trades **into the Golden Zone** in the direction of the
-active impulse leg — ahead of the indicator's arrow confirmation. This is the early, cheap entry.
+### Entry 1 — Golden Zone reached (*before* the arrow)
+The first position opens once price reaches the **discount region** of the active impulse leg —
+ahead of the indicator's arrow confirmation. This is the early, cheap entry.
 
-* Up leg → price pulls back into the zone → **BUY** at the base lot.
-* Down leg → price pulls back up into the zone → **SELL** at the base lot.
-* Fires **once per leg**. Once a leg has been traded, it will not trigger again on that leg, whether
+* Up leg → price pulls back to the 0.618 level or deeper, while still above the 1.000 origin → **BUY**.
+* Down leg → price rallies to the 0.618 level or higher, while still below the 1.000 origin → **SELL**.
+* Fires **once per leg**. Once a leg has been traded it will not trigger again on that leg, whether
   or not the cycle is still open.
 * Toggle with `InpEntryZoneTouch`.
+
+**Why "reached" and not "inside the 0.618–0.786 band".** The indicator only confirms a swing
+`InpSwingN` bars *after* it printed, so on a fast pullback price can travel through the whole
+0.618–0.786 band before the leg even becomes visible to the EA. Requiring price to be strictly
+inside that band at the moment the EA looks means the gate is almost never open, and the EA takes
+no trades at all. The condition is therefore "price has reached the 0.618 edge and the leg is
+still valid", which spans 0.618 → 1.000. The chart status shows `[IN ZONE]` when price is strictly
+inside the band and `[DISCOUNT - entry armed]` when it is past it but still inside the leg.
 
 ### Entry 2 — the arrow
 When the indicator prints an arrow (score ≥ `InpMinScore`), the EA opens the **next martingale
@@ -147,10 +155,31 @@ At least one must be on, or `OnInit` refuses to start.
 ### 7. Protection
 | Input | Default | Description |
 |---|---|---|
-| `InpMaxSpread` | 30 | Block **new entries** above this spread. Exits always run. `0` = off. |
+| `InpMaxSpread` | 0 (off) | Block **new entries** above this spread, in points. Off by default so it can never silently block every entry — on gold, indices and crypto a "normal" spread is often 30–300 points. Set it once you know your symbol's typical spread. |
 | `InpEquityStopPct` | 30.0 | Close all and halt at this equity drawdown %. `0` = off. |
 | `InpMagic` | 20260903 | Magic number. Give each chart its own. |
 | `InpSlippage` | 20 | Maximum deviation in points. |
+| `InpDebug` | true | Log one line per bar saying exactly which gate stopped an entry. Leave on until the EA is trading, then turn it off. |
+
+---
+
+## 3b. If the EA opens no positions
+
+`InpDebug` is on by default. Open **Toolbox → Experts** and you will get one line per bar naming
+the gate that is shut, e.g.:
+
+```
+[GFP][EURUSD] indicator link OK — legDir=1 zone 1.08412..1.08533 origin 1.08290
+[GFP][EURUSD] entry check: price 1.08610 has not reached the discount region (0.618 1.08533, origin 1.08290)
+[GFP][EURUSD] entry check: the indicator reports no valid impulse leg yet
+[GFP][EURUSD] entry check: all gates open — an entry should fire on the next tick
+```
+
+If you never see the `indicator link OK` line, the EA is not reading the indicator: check
+`InpIndName`, and confirm `GannFiboPro.ex5` compiled without errors.
+
+Other things worth checking first: **Algo Trading** enabled in the toolbar, the EA's own
+*Allow Algo Trading* box ticked, and the market open.
 
 ---
 
@@ -161,7 +190,7 @@ The EA prints a compact block in the chart corner, refreshed once per second:
 ```
 GannFiboPro EA  |  EURUSD  PERIOD_M5
 mode: BUY + SELL   spread: 8   running
-leg: UP   zone: 1.08412 - 1.08533   [PRICE IN ZONE]
+leg: UP   zone: 1.08412 - 1.08533   [IN ZONE]
 basket: BUY  3/5  vol 0.07  avg 1.08470
 profit: 4.20 (32 pts)   trail: off
 last arrow: BUY (score 6)
