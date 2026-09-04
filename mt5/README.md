@@ -46,3 +46,17 @@ the server or the composer.
   rather than decoration: the platform scores a later stop-out *after* a
   break-even move as a scratch rather than a loss, so the published win rate
   stays honest.
+
+---
+
+## Other MT5 tools in this folder
+
+- **[`AdrenalineB1000/`](AdrenalineB1000/README.md)** — chart indicator by Serro Deriv: Gann fan,
+  auto trendlines, a Fibonacci OTE block that stays invisible until price reaches it, Gann Square
+  of 9, daily pivots, confluence-scored Buy/Sell arrows, the ADRENALINE trend banner and a
+  multi-timeframe dashboard.
+- **[`AdrenalineB1000/AdrenalineB1000EA.mq5`](AdrenalineB1000/README-EA.md)** — martingale EA that
+  trades the indicator's OTE block and arrows, with basket TP/SL, break-even, trailing and a
+  buy-only / sell-only switch.
+
+Both are independent of the signal bridge above.
