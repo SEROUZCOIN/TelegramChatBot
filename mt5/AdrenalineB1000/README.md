@@ -42,22 +42,25 @@ swing is confirmed `InpSwingN` bars **after** it printed. Two alternating swings
 The leg is invalidated (and all levels are removed) when a **closed** bar breaks the 1.000 level,
 i.e. price closes beyond the leg's origin.
 
-### 2.2 Fibonacci
-Retracements are measured from B back toward A: `price = B − r × (B − A)` for an up leg.
+### 2.2 Fibonacci — the level set
 
-| Level | Meaning |
+Levels are measured with **0.0 at the leg origin (A)** and **1.0 at the leg extreme (B)**, the same
+way you would drag a Fibonacci tool from the start of the move to its end.
+
+| Level | Role |
 |---|---|
-| 0.236 / 0.382 | shallow pullbacks |
-| **0.500** | Equilibrium — the Premium / Discount split |
-| **0.618 – 0.650** | Golden Pocket (highlighted box) |
-| **0.705** | OTE sweet spot (dash-dot line) |
-| **0.618 – 0.786** | Golden Zone / Optimal Trade Entry (filled box) |
-| 0.886 | deep retracement, last defence |
-| 1.272 / 1.414 / 1.618 / 2.000 / 2.618 | extension targets, projected from A |
+| **0.0** | **STOP LOSS** — the leg origin. Price closing beyond it invalidates the leg. |
+| **0.618 – 0.786** | **OTE / Golden Zone** — drawn as the translucent Buy/Sell block. The only retracement level shown by default. |
+| 0.618 – 0.650 | Golden Pocket, the core of the block. |
+| **1.618** | **TP1** |
+| **2.618** | **TP2** |
+| **3.618** | **TP3** |
+| **4.236** | **TP4** |
 
-The Golden Zone bounds are configurable (`InpGZ_Start` / `InpGZ_End`). Standard Fibonacci traders
-use the narrow 0.618–0.65 pocket; the ICT/SMC framework uses the wider 0.618–0.786 OTE band with
-0.705 as the midpoint — both are drawn.
+That is the whole default chart: one block, one stop, four targets. The full retracement ladder
+(0.236 / 0.382 / 0.500 / 0.705 / 0.886) still exists behind `InpShowFib`, off by default, for when
+you want to study the structure rather than trade it. All four target levels are inputs, so the
+ladder can be reshaped without touching the code.
 
 ### 2.3 Gann fan
 The fan is anchored at the leg's origin pivot (A). The **price unit** is derived dynamically:
@@ -105,7 +108,8 @@ in ATR, max signals per leg, minimum bars between signals.
 
 ### 2.6a Non-repainting — what is guaranteed, and what is not
 
-An arrow, once printed, stays exactly where it printed. Four things enforce that:
+An arrow, once printed, stays exactly where it printed **and is never removed**. Five things
+enforce that:
 
 1. **Closed bars only.** Signals are written to `rates_total − 2` and older. The forming bar is
    cleared every tick and never receives an arrow.
@@ -119,6 +123,13 @@ An arrow, once printed, stays exactly where it printed. Four things enforce that
    makes a 5/8 signal score 6/8 after a reload, and the arrow appears or vanishes. The indicator
    therefore steps back one bar and reads the last H1 bar that was definitely closed at that moment.
    The filter is marginally staler; in exchange the score is reproducible.
+5. **A ledger on disk.** Every arrow that actually printed live is recorded to
+   `MQL5\Files\AdrenalineB1000\ADR_<symbol>_<timeframe>.txt` — bar time, direction, score, close
+   and the exact plotted price. After **every** recalculation the ledger is stamped back onto the
+   buffers, so a printed arrow survives a timeframe switch, a history top-up, a reconnect, a
+   terminal restart, even a broker revising its bars. Points 1–4 make the maths reproducible; this
+   makes it irrelevant whether it is. Turn it off with `InpPersistArrows`; delete the file to start
+   the record over.
 
 Two honest caveats:
 
@@ -128,7 +139,12 @@ Two honest caveats:
 * `InpMaxBars` bounds the replay. On a reload the state machine restarts at
   `rates_total − InpMaxBars`, so the handful of bars at the very start of that window can differ
   from a run with more history behind them. Everything past the first two confirmed swings is
-  identical. Set `InpMaxBars = 0` if you need the full history replayed identically.
+  identical, and any arrow that actually printed is restored from the ledger regardless. Set
+  `InpMaxBars = 0` if you also need the recomputation itself to match exactly.
+* The ledger guarantees arrows are never **removed**. It does not stop the recomputation from
+  **adding** an arrow on history that never printed live — on a first install, on a fresh symbol,
+  or in the Strategy Tester, the whole visible history is computed rather than replayed, which is
+  what you want there.
 
 ### 2.6b Signal visuals
 
@@ -146,18 +162,19 @@ default. MT5 chart objects have no alpha channel, so the block colour is blended
 background at that percentage, which gives a genuinely translucent look on any chart theme. The
 Golden Pocket (0.618–0.650) sits inside it, blended 15 points more opaque so it reads as the core.
 
-**Fibonacci SL and TP.** With the block comes the trade plan for the last signal:
+**Fibonacci SL and TP.** Revealed alongside the block, whether or not a signal has fired yet:
 
 | Element | Level |
 |---|---|
-| Entry line, solid neon | the signal bar's close |
-| `SL` line, dashed red | `InpPlanSlFib` retracement — default 1.000, the leg origin |
-| `TP1` line, pulsing green | `InpPlanTp1Fib` extension — default 1.272 |
-| `TP2` line, dotted green | `InpPlanTp2Fib` extension — default 1.618 |
-| `R:R 1 : x.xx` | computed from entry, SL and TP1 |
+| `SL 0.0` line, dashed red | the leg origin — the level that invalidates the setup |
+| `TP1` line, pulsing green | `InpTp1Fib` — default 1.618 |
+| `TP2` line, dotted green | `InpTp2Fib` — default 2.618 |
+| `TP3` line, dotted green | `InpTp3Fib` — default 3.618 |
+| `TP4` line, dotted green | `InpTp4Fib` — default 4.236 |
 
-TP1 pulses in colour and width and the SL width breathes, driven by one timer at `InpAnimMs`
-(default 120 ms). `InpAnimate = false` freezes the animation without removing anything.
+When a signal fires, an entry line and `R:R 1 : x.xx` (entry → SL against entry → TP1) are added.
+TP1 pulses in colour and width, driven by one timer at `InpAnimMs` (default 120 ms).
+`InpAnimate = false` freezes the animation without removing anything.
 
 **"GANN BUY" approach arrow.** Before price touches the Gann fan filter line or the auto trendline,
 an arrow appears just past that level with the text `GANN BUY` / `GANN SELL` (or `TREND BUY` /
@@ -219,8 +236,8 @@ bundled `AdrenalineB1000EA.mq5` reads exactly these.
 ### 2. Fibonacci
 | Input | Default | Description |
 |---|---|---|
-| `InpShowFib` | true | Draw retracement levels. |
-| `InpShowFibExt` | true | Draw 1.272–2.618 targets. |
+| `InpShowFib` | **false** | Draw the full retracement ladder. Off by default so only the OTE block shows. |
+| `InpShowTargets` | true | Draw the SL (0.0) and TP1–TP4 lines. |
 | `InpGZ_Start` / `InpGZ_End` | 0.618 / 0.786 | Golden Zone bounds. Use 0.618 / 0.650 for the strict pocket. |
 | `InpShowGoldenPocket` | true | Highlight 0.618–0.650 inside the block. |
 | `InpShowOTE` | true | Draw the 0.705 line. |
@@ -269,17 +286,22 @@ bundled `AdrenalineB1000EA.mq5` reads exactly these.
 ### 10. Signal visuals
 | Input | Default | Description |
 |---|---|---|
+| `InpPersistArrows` | true | Keep every printed arrow forever via the on-disk ledger. |
 | `InpRevealOnTouch` | true | Keep the entire Fibonacci layer invisible until price reaches the zone. |
 | `InpShowBlockZone` | true | Draw the translucent Buy / Sell block over the OTE band. |
 | `InpBlockOpacity` | 40.0 | Block opacity as a percentage, blended with the chart background. |
-| `InpShowTradePlan` | true | Draw entry / SL / TP lines on the last signal. |
-| `InpPlanSlFib` | 1.000 | Retracement level used as the plan's stop loss. |
-| `InpPlanTp1Fib` | 1.272 | Extension level used as TP1. |
-| `InpPlanTp2Fib` | 1.618 | Extension level used as TP2. |
+| `InpShowTradePlan` | true | Draw the entry line and R:R on the last signal. |
+| `InpTp1Fib` | 1.618 | TP1 level. |
+| `InpTp2Fib` | 2.618 | TP2 level. |
+| `InpTp3Fib` | 3.618 | TP3 level. |
+| `InpTp4Fib` | 4.236 | TP4 level. |
 | `InpShowApproachArrow` | true | Show the `GANN BUY` / `TREND BUY` arrow before price touches the line. |
 | `InpApproachAtr` | 0.35 | How close price must be to arm that arrow, in ATR. |
 | `InpAnimate` | true | Animate the plan levels and the banner. |
 | `InpAnimMs` | 120 | Animation frame time in milliseconds. The dashboard still refreshes once per second. |
+
+The stop loss is always the **0.0** level — the leg origin — and is not an input: it is the price
+that invalidates the setup, so moving it would mean trading a setup the indicator no longer sees.
 
 ### 11. Adrenaline trend banner
 | Input | Default | Description |

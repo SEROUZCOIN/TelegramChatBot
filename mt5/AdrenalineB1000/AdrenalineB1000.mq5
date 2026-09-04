@@ -95,8 +95,8 @@ input int               InpMaxBars           = 3000;     // Max bars to calculat
 input int               InpExtendBars        = 30;       // Extend levels N bars to the right
 
 input group "=========  2. FIBONACCI LEVELS  ========="
-input bool              InpShowFib           = true;     // Show Fibonacci retracements
-input bool              InpShowFibExt        = true;     // Show Fibonacci extensions (targets)
+input bool              InpShowFib           = false;    // Show the full retracement ladder (off = OTE only)
+input bool              InpShowTargets       = true;     // Show SL (0.0) and TP1..TP4
 input double            InpGZ_Start          = 0.618;    // Golden Zone start (shallow)
 input double            InpGZ_End            = 0.786;    // Golden Zone end (deep)
 input bool              InpShowGoldenPocket  = true;     // Show Golden Pocket 0.618-0.650
@@ -153,13 +153,15 @@ input bool              InpAlertSound        = true;     // Play sound on new si
 input string            InpAlertSoundFile    = "alert2.wav"; // Sound file
 
 input group "=========  10. SIGNAL VISUALS  ========="
+input bool              InpPersistArrows     = true;     // Keep printed arrows forever (ledger on disk)
 input bool              InpRevealOnTouch     = true;     // Fibonacci + OTE invisible until price reaches them
 input bool              InpShowBlockZone     = true;     // Draw the semi-transparent Buy / Sell block
 input double            InpBlockOpacity      = 40.0;     // Block opacity over the chart background (%)
 input bool              InpShowTradePlan     = true;     // Entry / SL / TP lines on the last signal
-input double            InpPlanSlFib         = 1.000;    // SL at this retracement level
-input double            InpPlanTp1Fib        = 1.272;    // TP1 at this extension level
-input double            InpPlanTp2Fib        = 1.618;    // TP2 at this extension level
+input double            InpTp1Fib            = 1.618;    // TP1 level
+input double            InpTp2Fib            = 2.618;    // TP2 level
+input double            InpTp3Fib            = 3.618;    // TP3 level
+input double            InpTp4Fib            = 4.236;    // TP4 level
 input bool              InpShowApproachArrow = true;     // "GANN BUY" arrow before price touches Gann / trendline
 input double            InpApproachAtr       = 0.35;     // Approach distance (x ATR)
 input bool              InpAnimate           = true;     // Animate the levels and the banner
@@ -229,7 +231,8 @@ input int               InpAdrenalineY        = 30;      // Banner Y offset from
 #define ADR_TF_COUNT          6
 #define ADR_FAN_COUNT         9
 #define ADR_FIB_COUNT         8
-#define ADR_EXT_COUNT         5
+#define ADR_EXT_COUNT         4
+#define ADR_SIG_MAX           1000            // أقصى عدد إشارات محفوظة في السجل
 #define ADR_DETAIL_ROWS       5
 #define ADR_MAX_SCORE         8
 #define ADR_FAN_MAIN_IDX      4               // index of 1x1 in g_fanRatio
@@ -308,6 +311,24 @@ struct SGfpState
 
 SGfpState g_st;
 
+//+------------------------------------------------------------------+
+//| SIGNAL LEDGER — سجل الإشارات: السهم يُطبع مرة ولا يُحذف أبداً     |
+//+------------------------------------------------------------------+
+//  إعادة حساب التاريخ (تبديل الإطار، تحديث السجل، إعادة الاتصال) تمسح
+//  البافرات وتعيد التقييم. السجل يحتفظ بكل سهم ظهر فعلاً على الشارت
+//  ويعيد ختمه بعد كل إعادة حساب، فلا يختفي سهم بعد ظهوره مهما حدث.
+struct SSigRec
+  {
+   datetime          time;      // زمن شمعة الإشارة
+   int               dir;       // +1 شراء / -1 بيع
+   int               score;     // نقاط التوافق وقت الإطلاق
+   double            close;     // إغلاق شمعة الإشارة
+   double            arrow;     // سعر رسم السهم — يُحفظ حتى لا يتحرك أبداً
+  };
+
+SSigRec g_sig[];
+int     g_sigCount = 0;
+
 //--- indicator buffers
 double g_bufBuy[];
 double g_bufSell[];
@@ -345,7 +366,7 @@ string g_fanName [ADR_FAN_COUNT] = {"1x8", "1x4", "1x3", "1x2", "1x1", "2x1", "3
 
 //--- fibonacci definition
 double g_fibRet[ADR_FIB_COUNT] = {0.236, 0.382, 0.500, 0.618, 0.650, 0.705, 0.786, 0.886};
-double g_fibExt[ADR_EXT_COUNT] = {1.272, 1.414, 1.618, 2.000, 2.618};
+double g_fibExt[ADR_EXT_COUNT];        // TP1..TP4 — تُملأ من الإدخالات في OnInit
 
 //--- dashboard table column widths
 int    g_colW[5] = {46, 66, 50, 82, 84};
@@ -474,6 +495,169 @@ color BlockColor(const color base)
 string PriceStr(const double p)
   {
    return DoubleToString(p, _Digits);
+  }
+
+//+------------------------------------------------------------------+
+//|          S I G N A L   L E D G E R   (persistence)               |
+//+------------------------------------------------------------------+
+
+//--- اسم ملف السجل: رمز + إطار زمني، مع تنظيف المحارف غير الصالحة
+string SigFileName()
+  {
+   string sym = _Symbol;
+   for(int i = 0; i < StringLen(sym); i++)
+     {
+      ushort ch = StringGetCharacter(sym, i);
+      bool ok = (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'Z') ||
+                (ch >= 'a' && ch <= 'z') || ch == '_';
+      if(!ok)
+         StringSetCharacter(sym, i, '_');
+     }
+   return "AdrenalineB1000\\ADR_" + sym + "_" + TfName(Period()) + ".txt";
+  }
+
+//--- إضافة سجل إلى المصفوفة مع سقف للحجم
+void SigAppend(const SSigRec &r)
+  {
+   if(g_sigCount >= ADR_SIG_MAX)                 // احتفظ بالنصف الأحدث
+     {
+      int keep = ADR_SIG_MAX / 2;
+      for(int i = 0; i < keep; i++)
+         g_sig[i] = g_sig[g_sigCount - keep + i];
+      g_sigCount = keep;
+     }
+   if(ArraySize(g_sig) < g_sigCount + 1 &&
+      ArrayResize(g_sig, g_sigCount + 64, 256) < g_sigCount + 1)
+      return;
+   g_sig[g_sigCount] = r;
+   g_sigCount++;
+  }
+
+//--- هل الشمعة مسجّلة أصلاً؟
+bool SigHas(const datetime t)
+  {
+   for(int i = g_sigCount - 1; i >= 0; i--)
+      if(g_sig[i].time == t)
+         return true;
+   return false;
+  }
+
+//--- كتابة السجل كاملاً (بضع مئات الأسطر — رخيص)
+void SigSave()
+  {
+   if(!InpPersistArrows || MQLInfoInteger(MQL_OPTIMIZATION))
+      return;
+   int h = FileOpen(SigFileName(), FILE_WRITE | FILE_TXT | FILE_ANSI);
+   if(h == INVALID_HANDLE)
+     {
+      LogErr("cannot write the signal ledger");
+      return;
+     }
+   for(int i = 0; i < g_sigCount; i++)
+      FileWrite(h, StringFormat("%I64d;%d;%d;%.10f;%.10f",
+                                (long)g_sig[i].time, g_sig[i].dir, g_sig[i].score,
+                                g_sig[i].close, g_sig[i].arrow));
+   FileClose(h);
+  }
+
+//--- قراءة السجل عند الإقلاع
+void SigLoad()
+  {
+   g_sigCount = 0;
+   ArrayResize(g_sig, 0);
+   if(!InpPersistArrows || MQLInfoInteger(MQL_OPTIMIZATION))
+      return;
+
+   int h = FileOpen(SigFileName(), FILE_READ | FILE_TXT | FILE_ANSI);
+   if(h == INVALID_HANDLE)
+      return;                                    // لا سجل بعد — طبيعي في أول تشغيل
+
+   ushort sep = StringGetCharacter(";", 0);
+   string parts[];
+   while(!FileIsEnding(h))
+     {
+      string line = FileReadString(h);
+      StringTrimLeft(line);
+      StringTrimRight(line);
+      if(StringLen(line) == 0)
+         continue;
+      if(StringGetCharacter(line, 0) == 0xFEFF)  // BOM لا تزيله دوال التشذيب
+         line = StringSubstr(line, 1);
+      if(StringSplit(line, sep, parts) < 5)
+         continue;
+
+      SSigRec r;
+      r.time  = (datetime)StringToInteger(parts[0]);
+      r.dir   = (int)StringToInteger(parts[1]);
+      r.score = (int)StringToInteger(parts[2]);
+      r.close = StringToDouble(parts[3]);
+      r.arrow = StringToDouble(parts[4]);
+      if(r.time <= 0 || r.dir == 0 || r.arrow <= 0.0)
+         continue;
+      SigAppend(r);
+     }
+   FileClose(h);
+   if(g_sigCount > 0)
+      PrintFormat("[ADR] signal ledger loaded: %d arrows", g_sigCount);
+  }
+
+//--- تسجيل إشارة أطلقت للتو (حيّة فقط)
+void SigAdd(const datetime t, const int dir, const int score,
+            const double closePrice, const double arrowPrice)
+  {
+   if(!InpPersistArrows || t <= 0 || dir == 0 || arrowPrice <= 0.0)
+      return;
+   if(SigHas(t))
+      return;
+   SSigRec r;
+   r.time  = t;
+   r.dir   = dir;
+   r.score = score;
+   r.close = closePrice;
+   r.arrow = arrowPrice;
+   SigAppend(r);
+   SigSave();
+  }
+
+//--- بحث ثنائي عن رقم الشمعة صاحبة زمن معيّن (time[] تصاعدية)
+int BarIndexOfTime(const datetime &time[], const int total, const datetime t)
+  {
+   int lo = 0, hi = total - 1;
+   while(lo <= hi)
+     {
+      int mid = (lo + hi) / 2;
+      if(time[mid] == t)
+         return mid;
+      if(time[mid] < t)
+         lo = mid + 1;
+      else
+         hi = mid - 1;
+     }
+   return -1;
+  }
+
+//--- إعادة ختم كل الأسهم المسجّلة على البافرات بعد أي إعادة حساب
+void SigStamp(const datetime &time[], const int rates_total, const int from)
+  {
+   if(!InpPersistArrows || g_sigCount <= 0 || rates_total < 2 || from >= rates_total)
+      return;
+   datetime t0   = time[from];
+   int      last = rates_total - 2;              // الشمعة المتكوّنة لا تحمل سهماً أبداً
+
+   for(int k = 0; k < g_sigCount; k++)
+     {
+      if(g_sig[k].time < t0)
+         continue;                               // خارج النطاق المُعاد حسابه
+      int idx = BarIndexOfTime(time, rates_total, g_sig[k].time);
+      if(idx < 0 || idx > last)
+         continue;
+      if(g_sig[k].dir > 0)
+         g_bufBuy[idx]  = g_sig[k].arrow;
+      else
+         g_bufSell[idx] = g_sig[k].arrow;
+      g_bufSignal[idx] = (double)g_sig[k].dir;
+      g_bufScore[idx]  = (double)g_sig[k].score;
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -1060,17 +1244,27 @@ void DrawFibonacci()
                 "1.000  " + PriceStr(g_st.legStartPrice), THEME_FIB_KEY, UI_FS_SM);
      }
 
-   //--- الامتدادات (الأهداف)
-   if(InpShowFibExt)
+   //--- وقف الخسارة عند المستوى 0.0 (أصل الموجة) والأهداف TP1..TP4
+   if(InpShowTargets)
      {
+      double slp = FibExtPrice(0.0);                  // المستوى 0.0 = نقطة انطلاق الموجة
+      DrawSegment("FIB_SL", g_st.legEndTime, tR, slp, THEME_SL, 2, STYLE_DASH);
+      DrawLabel("FIB_SLL", tR, slp,
+                StringFormat("SL  0.0   %s", PriceStr(slp)), THEME_SL, UI_FS);
+
       for(int k = 0; k < ADR_EXT_COUNT; k++)
         {
-         double e  = g_fibExt[k];
+         double e = g_fibExt[k];
+         if(e <= 0.0)
+            continue;
          double p  = FibExtPrice(e);
-         string id = StringFormat("FIB_E%d", (int)MathRound(e * 1000.0));
-         DrawSegment(id, g_st.legEndTime, tR, p, THEME_GOLD_DIM, 1, STYLE_DASH);
-         DrawLabel(id + "L", tR, p, "TP " + DoubleToString(e, 3) + "  " + PriceStr(p),
-                   THEME_GOLD_DIM, UI_FS_SM);
+         string id = StringFormat("FIB_TP%d", k + 1);
+         color  c  = (k == 0) ? AnimColor(THEME_TP, THEME_TP_HOT) : THEME_TP;
+         int    w  = (k == 0) ? AnimWidth(2, 3) : 1;
+         DrawSegment(id, g_st.legEndTime, tR, p, c, w,
+                     (k == 0) ? STYLE_DASH : STYLE_DOT);
+         DrawLabel(id + "L", tR, p,
+                   StringFormat("TP%d  %.3f   %s", k + 1, e, PriceStr(p)), c, UI_FS_SM);
         }
      }
 
@@ -1235,35 +1429,19 @@ void DrawTradePlan()
 
    int      dir   = g_st.lastSignalDir;
    double   entry = g_st.lastSignalPrice;
-   double   sl    = FibRetPrice(InpPlanSlFib);
-   double   tp1   = FibExtPrice(InpPlanTp1Fib);
-   double   tp2   = FibExtPrice(InpPlanTp2Fib);
+   double   sl    = FibExtPrice(0.0);                 // المستوى 0.0 = وقف الخسارة
+   double   tp1   = FibExtPrice(g_fibExt[0]);
    datetime tL    = g_st.lastSignalTime;
    datetime tR    = RightEdge();
    double   atr   = (g_st.lastAtr > 0.0) ? g_st.lastAtr : MathAbs(entry) * 0.001;
 
-   //--- خط الدخول
+   //--- خط الدخول (الوقف والأهداف تُرسم مع طبقة المستويات)
    DrawSegment("PLAN_ENTRY", tL, tR, entry, THEME_NEON, 2, STYLE_SOLID);
    DrawLabel("PLAN_ENTRYL", tR, entry,
              StringFormat("%s  %s", (dir > 0 ? "BUY" : "SELL"), PriceStr(entry)),
              THEME_NEON, UI_FS);
 
-   //--- وقف الخسارة عند مستوى فيبوناتشي
-   DrawSegment("PLAN_SL", tL, tR, sl, THEME_SL, AnimWidth(1, 2), STYLE_DASH);
-   DrawLabel("PLAN_SLL", tR, sl,
-             StringFormat("SL %.3f  %s", InpPlanSlFib, PriceStr(sl)), THEME_SL, UI_FS_SM);
-
-   //--- الأهداف عند امتدادات فيبوناتشي
-   DrawSegment("PLAN_TP1", tL, tR, tp1, AnimColor(THEME_TP, THEME_TP_HOT), AnimWidth(2, 3), STYLE_DASH);
-   DrawLabel("PLAN_TP1L", tR, tp1,
-             StringFormat("TP1 %.3f  %s", InpPlanTp1Fib, PriceStr(tp1)),
-             AnimColor(THEME_TP, THEME_TP_HOT), UI_FS_SM);
-
-   DrawSegment("PLAN_TP2", tL, tR, tp2, THEME_TP, AnimWidth(1, 2), STYLE_DOT);
-   DrawLabel("PLAN_TP2L", tR, tp2,
-             StringFormat("TP2 %.3f  %s", InpPlanTp2Fib, PriceStr(tp2)), THEME_TP, UI_FS_SM);
-
-   //--- نسبة العائد إلى المخاطرة
+   //--- نسبة العائد إلى المخاطرة حتى الهدف الأول
    double risk   = MathAbs(entry - sl);
    double reward = MathAbs(tp1 - entry);
    if(risk > 0.0)
@@ -1873,6 +2051,11 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
      }
 
+   g_fibExt[0] = InpTp1Fib;
+   g_fibExt[1] = InpTp2Fib;
+   g_fibExt[2] = InpTp3Fib;
+   g_fibExt[3] = InpTp4Fib;
+
    g_prefix    = "ADR" + IntegerToString(ChartID()) + "_";
    //--- في وضع الإكسبيرت لا رسم ولا لوحة: نسخة iCustom تشارك نفس الشارت والبادئة
    //--- مع النسخة المرئية، فتتصادم الكائنات وتُحذف عند إنهاء أيهما.
@@ -1949,6 +2132,9 @@ int OnInit()
          g_hTfRsi [k] = iRSI(_Symbol, g_tf[k], InpRsiPeriod, PRICE_CLOSE);
         }
      }
+
+   //--- سجل الإشارات الدائم
+   SigLoad();
 
    //--- الحالة الابتدائية
    g_st.Reset();
@@ -2129,16 +2315,22 @@ int OnCalculate(const int rates_total, const int prev_calculated,
       g_st.lastSignalTime  = time[i];
       g_st.legSignals++;
 
-      //--- تنبيه على آخر شمعة مغلقة فقط، وفي التشغيل الحي فقط
+      //--- تنبيه + تسجيل دائم على آخر شمعة مغلقة فقط، وفي التشغيل الحي فقط
       if(!fullRebuild && i == rates_total - 2)
+        {
+         SigAdd(time[i], dir, score, close[i], (dir > 0 ? g_bufBuy[i] : g_bufSell[i]));
          FireAlert(dir, close[i], score, time[i]);
+        }
      }
 
-   //--- 5) خزّن ATR الأخير (تستخدمه طبقات الرسم والحركة)
+   //--- 5) أعد ختم الأسهم المسجّلة: ما ظهر مرة لا يختفي بعد إعادة الحساب
+   SigStamp(time, rates_total, start);
+
+   //--- 6) خزّن ATR الأخير (تستخدمه طبقات الرسم والحركة)
    if(rates_total - 1 < ArraySize(g_atr))
       g_st.lastAtr = g_atr[rates_total - 1];
 
-   //--- 6) انقلاب الاتجاه -> لافتة ADRENALINE ON / OFF
+   //--- 7) انقلاب الاتجاه -> لافتة ADRENALINE ON / OFF
    int trendNow = (g_st.legValid ? g_st.legDir : 0);
    if(trendNow != 0 && trendNow != g_st.trendDir)
      {
@@ -2149,14 +2341,14 @@ int OnCalculate(const int rates_total, const int prev_calculated,
       PrintFormat("[ADR] trend flip -> ADRENALINE %s", (trendNow > 0 ? "ON" : "OFF"));
      }
 
-   //--- 7) كشف بلوغ منطقة OTE — يحدث داخل الشمعة، لذا يُفحص كل تيك
+   //--- 8) كشف بلوغ منطقة OTE — يحدث داخل الشمعة، لذا يُفحص كل تيك
    if(g_st.legValid && !g_st.zoneTouched && ZoneReachedNow())
      {
       g_st.zoneTouched = true;
       legChanged = true;                          // أظهر المنطقة الآن
      }
 
-   //--- 8) تحديث الرسومات عند شمعة جديدة أو تغيّر الموجة
+   //--- 9) تحديث الرسومات عند شمعة جديدة أو تغيّر الموجة
    datetime curBarTime = time[rates_total - 1];
    if(g_uiEnabled && (legChanged || curBarTime != g_st.lastBarTime))
      {
