@@ -1,21 +1,27 @@
-# GannFiboPro — MT5 Indicator
+# Adrenaline B1000 — MT5 Indicator
 
-Gann Fan + Auto Trendlines + Fibonacci Golden Zone (OTE) + Gann Square of 9 + Classic Pivots,
-with confluence-scored Buy/Sell arrows and a futuristic multi-timeframe dashboard.
+**Author: Serro Deriv**
 
-Single file, zero dependencies: `GannFiboPro.mq5`.
+Gann Fan + Auto Trendlines + Fibonacci OTE Block Zone + Gann Square of 9 + Classic Pivots,
+with confluence-scored Buy/Sell arrows, an ADRENALINE trend banner and a multi-timeframe dashboard.
+
+Single file, zero dependencies: `AdrenalineB1000.mq5`.
+
+The signature behaviour: **the Fibonacci layer stays completely invisible until price actually
+reaches it.** The chart is clean while price is away, then a 40% translucent Buy/Sell block appears
+with Fibonacci-based SL and TP the moment price arrives.
 
 A companion martingale EA that trades these levels ships alongside it —
-see **[README-EA.md](README-EA.md)** for `GannFiboProEA.mq5`.
+see **[README-EA.md](README-EA.md)** for `AdrenalineB1000EA.mq5`.
 
 ---
 
 ## 1. Installation
 
-1. Copy `GannFiboPro.mq5` into `MQL5\Indicators\GannFiboPro\` inside your terminal data folder
-   (MetaTrader 5 → **File → Open Data Folder**).
+1. Copy `AdrenalineB1000.mq5` into `MQL5\Indicators\AdrenalineB1000\` inside your terminal data
+   folder (MetaTrader 5 → **File → Open Data Folder**).
 2. Open it in MetaEditor and press **F7** (Compile). Expect `0 errors, 0 warnings`.
-3. In MT5, refresh the Navigator (right-click → Refresh), then drag **GannFiboPro** onto a chart.
+3. In MT5, refresh the Navigator (right-click → Refresh), then drag **AdrenalineB1000** onto a chart.
 4. Recommended chart timeframes: **M1, M5, M15, M30, H1**. The dashboard always reports
    M1 / M5 / M15 / M30 / H1 / H4 regardless of the chart's own timeframe.
 
@@ -104,37 +110,44 @@ auto-Fibonacci/Gann tool, not repainting of the signals.
 
 ### 2.6b Signal visuals
 
-Three chart layers sit on top of the levels. All of them live in the indicator, so they appear
-whenever the indicator is on the chart — the EA's hidden `iCustom` copy draws nothing.
+**Nothing Fibonacci-related is drawn until price reaches the zone.** With `InpRevealOnTouch` on
+(default), the whole Fibonacci layer — retracements, extensions, the OTE block, the pocket, the A/B
+markers and the trade plan — is absent from the chart while price is away from the zone. The Gann
+fan, the auto trendlines, Square of 9 and the pivots stay visible throughout, so you still have
+structure to read; the moment price actually reaches the 0.618 edge the whole Fibonacci layer
+appears at once. The touch is checked **every tick**, not once per bar, so an intrabar touch counts,
+and it resets with each new impulse leg. Set the input to `false` to have everything always drawn.
 
-**Golden Zone reveals on touch.** With `InpZoneRevealOnTouch` on (default), the Golden Zone and
-Golden Pocket boxes are **not drawn at all** while price is still away from them. The 0.618 line
-itself stays visible, so you always know where the edge is; the filled boxes appear — in a brighter
-gold — the moment price actually reaches the zone. The chart stays clean and the zone only shouts
-when it matters. The reveal is checked every tick, not once per bar, so it catches an intrabar
-touch. It resets with each new impulse leg. Turn the input off to have the boxes always drawn.
+**The 40% Block.** Once revealed, the OTE band (0.618 → 0.786) is filled as a **Buy Block** (green
+on an up leg) or **Sell Block** (red on a down leg), rendered at `InpBlockOpacity` percent — 40% by
+default. MT5 chart objects have no alpha channel, so the block colour is blended with the live chart
+background at that percentage, which gives a genuinely translucent look on any chart theme. The
+Golden Pocket (0.618–0.650) sits inside it, blended 15 points more opaque so it reads as the core.
 
-**Animated rocket trade plan.** When a signal fires, the indicator draws the full plan on the chart:
+**Fibonacci SL and TP.** With the block comes the trade plan for the last signal:
 
 | Element | Level |
 |---|---|
-| 🚀 rocket, bobbing above the entry (rotated 180° for a sell) | entry ± ATR |
 | Entry line, solid neon | the signal bar's close |
 | `SL` line, dashed red | `InpPlanSlFib` retracement — default 1.000, the leg origin |
 | `TP1` line, pulsing green | `InpPlanTp1Fib` extension — default 1.272 |
 | `TP2` line, dotted green | `InpPlanTp2Fib` extension — default 1.618 |
 | `R:R 1 : x.xx` | computed from entry, SL and TP1 |
 
-The rocket bobs, the TP1 line pulses in colour and width, and the SL width breathes — all driven by
-one timer at `InpAnimMs` (default 120 ms). `InpAnimate = false` freezes everything without removing
-it. If your machine cannot render the emoji, change `InpRocketGlyph` to any character you like.
+TP1 pulses in colour and width and the SL width breathes, driven by one timer at `InpAnimMs`
+(default 120 ms). `InpAnimate = false` freezes the animation without removing anything.
 
 **"GANN BUY" approach arrow.** Before price touches the Gann fan filter line or the auto trendline,
 an arrow appears just past that level with the text `GANN BUY` / `GANN SELL` (or `TREND BUY` /
-`TREND SELL` when the trendline is the nearer of the two), plus a dotted line marking the level
-being approached. It arms when price is within `InpApproachAtr` × ATR of the level **and on the
-correct side of it** for the active leg's direction, and it disappears by itself once price moves
-away or through. This is the early warning that fires *before* the confluence arrow does.
+`TREND SELL` when the trendline is nearer), plus a dotted line marking the level being approached.
+It arms when price is within `InpApproachAtr` × ATR of the level **and on the correct side of it**
+for the active leg, and clears itself once price moves away. Since the Fibonacci layer is hidden
+until the touch, this arrow is your pre-touch cue.
+
+**ADRENALINE trend banner.** When the impulse leg flips direction, a banner appears centred near the
+top of the chart: **ADRENALINE ON** in neon green when the trend turns up, **ADRENALINE OFF** in red
+when it turns down. It flashes strongly for `InpAdrenalineFlashSec` seconds after the flip, then
+settles into a steady display of the current state. The flip is also printed to the Experts log.
 
 ### 2.7 EA integration — exported buffers
 
@@ -156,14 +169,14 @@ over identically named objects on the same chart.
 | 7 | Leg origin = the 1.000 invalidation level (`0` = none) | shift 0 |
 
 ```mql5
-int h = iCustom(_Symbol, PERIOD_CURRENT, "GannFiboPro\\GannFiboPro");  // defaults
+int h = iCustom(_Symbol, PERIOD_CURRENT, "AdrenalineB1000\\AdrenalineB1000");  // defaults
 double sig[1], zoneHi[1];
 CopyBuffer(h, 2, 1, 1, sig);      // signal on the last closed bar
 CopyBuffer(h, 5, 0, 1, zoneHi);   // live Golden Zone upper bound
 ```
 
 Buffers 4–7 exist so an EA never has to re-derive the swing/leg/zone logic — the
-bundled `GannFiboProEA.mq5` reads exactly these.
+bundled `AdrenalineB1000EA.mq5` reads exactly these.
 
 ---
 
@@ -186,9 +199,8 @@ bundled `GannFiboProEA.mq5` reads exactly these.
 |---|---|---|
 | `InpShowFib` | true | Draw retracement levels. |
 | `InpShowFibExt` | true | Draw 1.272–2.618 targets. |
-| `InpShowGoldenZone` | true | Draw the OTE box. |
 | `InpGZ_Start` / `InpGZ_End` | 0.618 / 0.786 | Golden Zone bounds. Use 0.618 / 0.650 for the strict pocket. |
-| `InpShowGoldenPocket` | true | Highlight 0.618–0.650. |
+| `InpShowGoldenPocket` | true | Highlight 0.618–0.650 inside the block. |
 | `InpShowOTE` | true | Draw the 0.705 line. |
 | `InpShowEquilibrium` | true | Draw the 0.500 Premium/Discount split. |
 
@@ -235,16 +247,24 @@ bundled `GannFiboProEA.mq5` reads exactly these.
 ### 10. Signal visuals
 | Input | Default | Description |
 |---|---|---|
-| `InpZoneRevealOnTouch` | true | Keep the Golden Zone boxes invisible until price reaches the zone. |
-| `InpShowTradePlan` | true | Draw the rocket plus entry / SL / TP lines on the last signal. |
-| `InpRocketGlyph` | 🚀 | Glyph used for the rocket. Change it if your system cannot render emoji. |
+| `InpRevealOnTouch` | true | Keep the entire Fibonacci layer invisible until price reaches the zone. |
+| `InpShowBlockZone` | true | Draw the translucent Buy / Sell block over the OTE band. |
+| `InpBlockOpacity` | 40.0 | Block opacity as a percentage, blended with the chart background. |
+| `InpShowTradePlan` | true | Draw entry / SL / TP lines on the last signal. |
 | `InpPlanSlFib` | 1.000 | Retracement level used as the plan's stop loss. |
 | `InpPlanTp1Fib` | 1.272 | Extension level used as TP1. |
 | `InpPlanTp2Fib` | 1.618 | Extension level used as TP2. |
 | `InpShowApproachArrow` | true | Show the `GANN BUY` / `TREND BUY` arrow before price touches the line. |
 | `InpApproachAtr` | 0.35 | How close price must be to arm that arrow, in ATR. |
-| `InpAnimate` | true | Animate the rocket and the plan levels. |
+| `InpAnimate` | true | Animate the plan levels and the banner. |
 | `InpAnimMs` | 120 | Animation frame time in milliseconds. The dashboard still refreshes once per second. |
+
+### 11. Adrenaline trend banner
+| Input | Default | Description |
+|---|---|---|
+| `InpShowAdrenaline` | true | Show the ADRENALINE ON / OFF banner on a trend flip. |
+| `InpAdrenalineFlashSec` | 8 | Seconds of strong flashing after the flip, before it settles. |
+| `InpAdrenalineY` | 60 | Banner distance from the top of the chart, in pixels. |
 
 ### 8–9. Dashboard and alerts
 | Input | Default | Description |

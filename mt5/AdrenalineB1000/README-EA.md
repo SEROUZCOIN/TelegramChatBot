@@ -1,6 +1,8 @@
-# GannFiboProEA — Martingale EA for the GannFiboPro indicator
+# Adrenaline B1000 EA — Martingale EA for the Adrenaline B1000 indicator
 
-`GannFiboProEA.mq5` trades the levels that [`GannFiboPro`](README.md) draws. It reads the
+**Author: Serro Deriv**
+
+`AdrenalineB1000EA.mq5` trades the levels that [`AdrenalineB1000`](README.md) draws. It reads the
 indicator through `iCustom` — it does **not** re-implement the swing, Gann or Fibonacci logic, so
 the chart and the EA can never disagree.
 
@@ -10,14 +12,14 @@ No session filter, no time filter, no news filter — as requested. The input li
 
 ## 1. Installation
 
-1. Compile the **indicator first**: `MQL5\Indicators\GannFiboPro\GannFiboPro.mq5` → F7.
-   The EA cannot start without `GannFiboPro.ex5` existing.
-2. Copy `GannFiboProEA.mq5` into `MQL5\Experts\GannFiboPro\` and compile it → F7.
+1. Compile the **indicator first**: `MQL5\Indicators\AdrenalineB1000\AdrenalineB1000.mq5` → F7.
+   The EA cannot start without `AdrenalineB1000.ex5` existing.
+2. Copy `AdrenalineB1000EA.mq5` into `MQL5\Experts\AdrenalineB1000\` and compile it → F7.
 3. Enable **Algo Trading** in the terminal toolbar.
 4. Drag the EA onto a chart. Attaching the indicator to the same chart is optional — the EA loads
    its own instance either way — but you will want it visible to see what the EA is reacting to.
 5. `InpIndName` must match where the indicator lives, relative to `MQL5\Indicators` and without the
-   extension. Default: `GannFiboPro\GannFiboPro`.
+   extension. Default: `AdrenalineB1000\AdrenalineB1000`.
 
 **Account type.** Designed for **hedging** accounts, where each martingale add is its own position.
 It also runs on **netting** accounts — the adds merge into a single position and the average price
@@ -105,7 +107,7 @@ re-attach the EA. Set it to `0` to disable — not recommended.
 ### 1. Indicator link
 | Input | Default | Description |
 |---|---|---|
-| `InpIndName` | `GannFiboPro\GannFiboPro` | Path under `MQL5\Indicators`, no extension. |
+| `InpIndName` | `AdrenalineB1000\AdrenalineB1000` | Path under `MQL5\Indicators`, no extension. |
 | `InpMinScore` | 5 | Minimum confluence score (0–8) for the EA to act on an arrow. |
 
 The EA calls the indicator with its **default settings**. To trade a different configuration —
@@ -169,14 +171,14 @@ At least one must be on, or `OnInit` refuses to start.
 the gate that is shut, e.g.:
 
 ```
-[GFP][EURUSD] indicator link OK — legDir=1 zone 1.08412..1.08533 origin 1.08290
-[GFP][EURUSD] entry check: price 1.08610 has not reached the discount region (0.618 1.08533, origin 1.08290)
-[GFP][EURUSD] entry check: the indicator reports no valid impulse leg yet
-[GFP][EURUSD] entry check: all gates open — an entry should fire on the next tick
+[ADR][EURUSD] indicator link OK — legDir=1 zone 1.08412..1.08533 origin 1.08290
+[ADR][EURUSD] entry check: price 1.08610 has not reached the discount region (0.618 1.08533, origin 1.08290)
+[ADR][EURUSD] entry check: the indicator reports no valid impulse leg yet
+[ADR][EURUSD] entry check: all gates open — an entry should fire on the next tick
 ```
 
 If you never see the `indicator link OK` line, the EA is not reading the indicator: check
-`InpIndName`, and confirm `GannFiboPro.ex5` compiled without errors.
+`InpIndName`, and confirm `AdrenalineB1000.ex5` compiled without errors.
 
 Other things worth checking first: **Algo Trading** enabled in the toolbar, the EA's own
 *Allow Algo Trading* box ticked, and the market open.
@@ -188,7 +190,7 @@ Other things worth checking first: **Algo Trading** enabled in the toolbar, the 
 The EA prints a compact block in the chart corner, refreshed once per second:
 
 ```
-GannFiboPro EA  |  EURUSD  PERIOD_M5
+Adrenaline B1000 EA  |  EURUSD  PERIOD_M5
 mode: BUY + SELL   spread: 8   running
 leg: UP   zone: 1.08412 - 1.08533   [IN ZONE]
 basket: BUY  3/5  vol 0.07  avg 1.08470

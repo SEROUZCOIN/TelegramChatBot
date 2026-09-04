@@ -1,14 +1,19 @@
 ﻿//+------------------------------------------------------------------+
-//|                                                GannFiboProEA.mq5 |
-//|   Martingale Expert Advisor driven by the GannFiboPro indicator. |
+//|                                            AdrenalineB1000EA.mq5 |
+//|                                        Copyright 2026, Serro Deriv|
 //|                                                                  |
-//|   إكسبيرت مارتينجيل يقرأ حالته من مؤشر GannFiboPro:              |
+//|   Martingale Expert Advisor driven by the Adrenaline B1000       |
+//|   indicator.                                                     |
+//|                                                                  |
+//|   إكسبيرت مارتينجيل يقرأ حالته من مؤشر Adrenaline B1000:         |
 //|   الدخول الأول عند لمس المنطقة الذهبية (قبل السهم)، ثم مضاعفات   |
 //|   عند ظهور السهم وعند ابتعاد السعر، مع تريلينج على متوسط السلة.  |
 //+------------------------------------------------------------------+
-#property copyright "GannFiboPro"
-#property version   "1.00"
-#property description "Martingale EA for the GannFiboPro indicator."
+#property copyright "Copyright 2026, Serro Deriv"
+#property link      ""
+#property version   "2.00"
+#property description "Adrenaline B1000 EA — by Serro Deriv"
+#property description "Martingale EA for the Adrenaline B1000 indicator."
 #property description "Entry 1: Golden Zone touch (before the arrow). Entry 2+: arrow and distance martingale."
 #property description "Basket average TP/SL, break-even and trailing. Buy-only / Sell-only supported."
 
@@ -28,7 +33,7 @@ enum ENUM_TRADE_DIR
 //| CONFIG — الإدخالات (بلا مرشحات جلسات أو وقت، حسب الطلب)          |
 //+------------------------------------------------------------------+
 input group "=========  1. INDICATOR LINK  ========="
-input string         InpIndName        = "GannFiboPro\\GannFiboPro"; // Indicator path under MQL5\Indicators
+input string         InpIndName        = "AdrenalineB1000\\AdrenalineB1000"; // Indicator path under MQL5\Indicators
 input int            InpMinScore       = 5;          // Min confluence score to accept an arrow (0-8)
 
 input group "=========  2. DIRECTION  ========="
@@ -69,15 +74,15 @@ input bool           InpDebug          = true;       // Log why an entry was not
 //+------------------------------------------------------------------+
 //| CONSTANTS                                                        |
 //+------------------------------------------------------------------+
-#define GFP_BUF_SIGNAL     2
-#define GFP_BUF_SCORE      3
-#define GFP_BUF_LEGDIR     4
-#define GFP_BUF_ZONE_HI    5
-#define GFP_BUF_ZONE_LO    6
-#define GFP_BUF_LEG_ORIG   7
+#define ADR_BUF_SIGNAL     2
+#define ADR_BUF_SCORE      3
+#define ADR_BUF_LEGDIR     4
+#define ADR_BUF_ZONE_HI    5
+#define ADR_BUF_ZONE_LO    6
+#define ADR_BUF_LEG_ORIG   7
 
-#define GFP_LOT_MULT_MAX   5.0
-#define GFP_EA_TAG         "GFP"
+#define ADR_LOT_MULT_MAX   5.0
+#define ADR_EA_TAG         "ADR"
 
 //+------------------------------------------------------------------+
 //| STATE                                                            |
@@ -134,7 +139,7 @@ double   g_lotMult = 2.0;      // نسخة مُقيَّدة من InpLotMult (ا�
 //--- تسجيل موحّد
 void Log(const string msg)
   {
-   PrintFormat("[%s][%s] %s", GFP_EA_TAG, _Symbol, msg);
+   PrintFormat("[%s][%s] %s", ADR_EA_TAG, _Symbol, msg);
   }
 
 //--- تطبيع الحجم على خطوة الرمز
@@ -219,12 +224,12 @@ bool ReadIndicator(SIndSnap &s)
       return false;                       // المؤشر لم يجهز بعد
 
    double legDir, zHi, zLo, orig, sig, sco;
-   if(!IndValue(GFP_BUF_LEGDIR,   0, legDir)) return false;
-   if(!IndValue(GFP_BUF_ZONE_HI,  0, zHi))    return false;
-   if(!IndValue(GFP_BUF_ZONE_LO,  0, zLo))    return false;
-   if(!IndValue(GFP_BUF_LEG_ORIG, 0, orig))   return false;
-   if(!IndValue(GFP_BUF_SIGNAL,   1, sig))    return false;
-   if(!IndValue(GFP_BUF_SCORE,    1, sco))    return false;
+   if(!IndValue(ADR_BUF_LEGDIR,   0, legDir)) return false;
+   if(!IndValue(ADR_BUF_ZONE_HI,  0, zHi))    return false;
+   if(!IndValue(ADR_BUF_ZONE_LO,  0, zLo))    return false;
+   if(!IndValue(ADR_BUF_LEG_ORIG, 0, orig))   return false;
+   if(!IndValue(ADR_BUF_SIGNAL,   1, sig))    return false;
+   if(!IndValue(ADR_BUF_SCORE,    1, sco))    return false;
 
    s.legDir    = (int)MathRound(legDir);
    s.zoneHi    = zHi;
@@ -334,8 +339,8 @@ bool OpenPosition(const int dir, const double lot, const string reason)
      }
 
    //--- الوقف والهدف يُضبطان لاحقاً على مستوى السلة
-   bool ok = isBuy ? g_trade.Buy (vol, _Symbol, 0.0, 0.0, 0.0, GFP_EA_TAG + " " + reason)
-             : g_trade.Sell(vol, _Symbol, 0.0, 0.0, 0.0, GFP_EA_TAG + " " + reason);
+   bool ok = isBuy ? g_trade.Buy (vol, _Symbol, 0.0, 0.0, 0.0, ADR_EA_TAG + " " + reason)
+             : g_trade.Sell(vol, _Symbol, 0.0, 0.0, 0.0, ADR_EA_TAG + " " + reason);
 
    if(!ok || g_trade.ResultRetcode() != TRADE_RETCODE_DONE)
      {
@@ -791,9 +796,9 @@ int OnInit()
      }
 
    //--- الإدخالات ثوابت وقت التشغيل — تُنسخ إلى متغيرات عمل قابلة للتقييد
-   g_lotMult = MathMin(InpLotMult, GFP_LOT_MULT_MAX);
-   if(InpLotMult > GFP_LOT_MULT_MAX)
-      Log(StringFormat("lot multiplier clamped from %.2f to %.2f", InpLotMult, GFP_LOT_MULT_MAX));
+   g_lotMult = MathMin(InpLotMult, ADR_LOT_MULT_MAX);
+   if(InpLotMult > ADR_LOT_MULT_MAX)
+      Log(StringFormat("lot multiplier clamped from %.2f to %.2f", InpLotMult, ADR_LOT_MULT_MAX));
 
    g_point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
    g_tick  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);

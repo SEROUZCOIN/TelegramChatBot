@@ -51,11 +51,12 @@ the server or the composer.
 
 ## Other MT5 tools in this folder
 
-- **[`GannFiboPro/`](GannFiboPro/README.md)** — chart indicator: Gann fan, auto trendlines,
-  Fibonacci Golden Zone (OTE), Gann Square of 9, daily pivots, confluence-scored Buy/Sell
-  arrows and a multi-timeframe dashboard.
-- **[`GannFiboPro/GannFiboProEA.mq5`](GannFiboPro/README-EA.md)** — martingale EA that trades
-  the indicator's Golden Zone and arrows, with basket TP/SL, break-even, trailing and a
+- **[`AdrenalineB1000/`](AdrenalineB1000/README.md)** — chart indicator by Serro Deriv: Gann fan,
+  auto trendlines, a Fibonacci OTE block that stays invisible until price reaches it, Gann Square
+  of 9, daily pivots, confluence-scored Buy/Sell arrows, the ADRENALINE trend banner and a
+  multi-timeframe dashboard.
+- **[`AdrenalineB1000/AdrenalineB1000EA.mq5`](AdrenalineB1000/README-EA.md)** — martingale EA that
+  trades the indicator's OTE block and arrows, with basket TP/SL, break-even, trailing and a
   buy-only / sell-only switch.
 
 Both are independent of the signal bridge above.

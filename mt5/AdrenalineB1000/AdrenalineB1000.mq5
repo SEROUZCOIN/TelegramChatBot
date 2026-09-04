@@ -1,49 +1,53 @@
 ﻿//+------------------------------------------------------------------+
-//|                                                  GannFiboPro.mq5 |
-//|          Gann Fan + Auto Trendlines + Fibonacci Golden Zone (OTE)|
-//|          + Gann Square of 9 + Classic Pivots + MTF Dashboard     |
+//|                                              AdrenalineB1000.mq5 |
+//|                                        Copyright 2026, Serro Deriv|
+//|                                                                  |
+//|   Gann Fan + Auto Trendlines + Fibonacci OTE Block Zone          |
+//|   + Gann Square of 9 + Classic Pivots + MTF Dashboard            |
 //|                                                                  |
 //|  مؤشر احترافي: يكتشف الموجة (Impulse Leg) تلقائياً من قمم وقيعان |
-//|  مؤكدة، ثم يبني عليها مروحة جان + مستويات فيبوناتشي + المنطقة    |
-//|  الذهبية + خطوط الاتجاه، ويصدر إشارات بنظام نقاط توافقي.         |
+//|  مؤكدة، ثم يبني عليها مروحة جان + مستويات فيبوناتشي + كتلة       |
+//|  الشراء الشفافة، ويصدر إشارات بنظام نقاط توافقي.                 |
 //+------------------------------------------------------------------+
-#property copyright "GannFiboPro"
-#property version   "1.00"
-#property description "Gann Fan + Auto Trendlines + Fibonacci Golden Zone (OTE) + Square of 9 + Pivots"
-#property description "Confluence-scored Buy/Sell arrows and a futuristic multi-timeframe dashboard."
-#property description "Built for M1 / M5 / M15 / M30 / H1 / H4 scalping and intraday trading."
+#property copyright "Copyright 2026, Serro Deriv"
+#property link      ""
+#property version   "2.00"
+#property description "Adrenaline B1000 — by Serro Deriv"
+#property description "Gann Fan + Auto Trendlines + Fibonacci OTE Block Zone + Square of 9 + Pivots"
+#property description "Levels stay hidden until price reaches them, then a 40% Buy/Sell block appears"
+#property description "with Fibonacci-based SL and TP, plus the ADRENALINE trend banner."
 
 #property indicator_chart_window
 #property indicator_buffers 8
 #property indicator_plots   8
 
-#property indicator_label1  "GFP Buy"
+#property indicator_label1  "ADR Buy"
 #property indicator_type1   DRAW_ARROW
 #property indicator_color1  clrAqua
 #property indicator_width1  3
 
-#property indicator_label2  "GFP Sell"
+#property indicator_label2  "ADR Sell"
 #property indicator_type2   DRAW_ARROW
 #property indicator_color2  clrGold
 #property indicator_width2  3
 
-#property indicator_label3  "GFP Signal"      // +1 buy / -1 sell / 0 none  (EA reads via iCustom)
+#property indicator_label3  "ADR Signal"      // +1 buy / -1 sell / 0 none  (EA reads via iCustom)
 #property indicator_type3   DRAW_NONE
 
-#property indicator_label4  "GFP Score"       // confluence score 0..8      (EA reads via iCustom)
+#property indicator_label4  "ADR Score"       // confluence score 0..8      (EA reads via iCustom)
 #property indicator_type4   DRAW_NONE
 
 //--- البافرات 5..8 تُصدّر حالة الموجة والمنطقة الذهبية لأي إكسبيرت عبر iCustom
-#property indicator_label5  "GFP LegDir"      // +1 up leg / -1 down leg / 0 none
+#property indicator_label5  "ADR LegDir"      // +1 up leg / -1 down leg / 0 none
 #property indicator_type5   DRAW_NONE
 
-#property indicator_label6  "GFP ZoneHigh"    // Golden Zone upper price (0 = none)
+#property indicator_label6  "ADR ZoneHigh"    // Golden Zone upper price (0 = none)
 #property indicator_type6   DRAW_NONE
 
-#property indicator_label7  "GFP ZoneLow"     // Golden Zone lower price (0 = none)
+#property indicator_label7  "ADR ZoneLow"     // Golden Zone lower price (0 = none)
 #property indicator_type7   DRAW_NONE
 
-#property indicator_label8  "GFP LegOrigin"   // leg 1.000 level = invalidation price (0 = none)
+#property indicator_label8  "ADR LegOrigin"   // leg 1.000 level = invalidation price (0 = none)
 #property indicator_type8   DRAW_NONE
 
 //+------------------------------------------------------------------+
@@ -92,7 +96,6 @@ input int               InpExtendBars        = 30;       // Extend levels N bars
 input group "=========  2. FIBONACCI LEVELS  ========="
 input bool              InpShowFib           = true;     // Show Fibonacci retracements
 input bool              InpShowFibExt        = true;     // Show Fibonacci extensions (targets)
-input bool              InpShowGoldenZone    = true;     // Show Golden Zone box (OTE)
 input double            InpGZ_Start          = 0.618;    // Golden Zone start (shallow)
 input double            InpGZ_End            = 0.786;    // Golden Zone end (deep)
 input bool              InpShowGoldenPocket  = true;     // Show Golden Pocket 0.618-0.650
@@ -149,16 +152,22 @@ input bool              InpAlertSound        = true;     // Play sound on new si
 input string            InpAlertSoundFile    = "alert2.wav"; // Sound file
 
 input group "=========  10. SIGNAL VISUALS  ========="
-input bool              InpZoneRevealOnTouch = true;     // Golden Zone invisible until price reaches it
-input bool              InpShowTradePlan     = true;     // Rocket + Entry / SL / TP on the last signal
-input string            InpRocketGlyph       = "🚀";     // Rocket glyph (change if your PC cannot render it)
+input bool              InpRevealOnTouch     = true;     // Fibonacci + OTE invisible until price reaches them
+input bool              InpShowBlockZone     = true;     // Draw the semi-transparent Buy / Sell block
+input double            InpBlockOpacity      = 40.0;     // Block opacity over the chart background (%)
+input bool              InpShowTradePlan     = true;     // Entry / SL / TP lines on the last signal
 input double            InpPlanSlFib         = 1.000;    // SL at this retracement level
 input double            InpPlanTp1Fib        = 1.272;    // TP1 at this extension level
 input double            InpPlanTp2Fib        = 1.618;    // TP2 at this extension level
 input bool              InpShowApproachArrow = true;     // "GANN BUY" arrow before price touches Gann / trendline
 input double            InpApproachAtr       = 0.35;     // Approach distance (x ATR)
-input bool              InpAnimate           = true;     // Animate the rocket and the levels
+input bool              InpAnimate           = true;     // Animate the levels and the banner
 input int               InpAnimMs            = 120;      // Animation frame time (ms)
+
+input group "=========  11. ADRENALINE TREND BANNER  ========="
+input bool              InpShowAdrenaline    = true;     // Show the ADRENALINE ON / OFF banner
+input int               InpAdrenalineFlashSec = 8;       // Seconds of strong flashing after a trend flip
+input int               InpAdrenalineY        = 60;      // Banner distance from the top (px)
 
 //+------------------------------------------------------------------+
 //| THEME — مكتبة الألوان: لا يوجد لون خام خارج هذه الكتلة            |
@@ -176,14 +185,11 @@ input int               InpAnimMs            = 120;      // Animation frame time
 #define THEME_SELL            C'255,82,102'    // bearish
 #define THEME_NEUTRAL         C'128,140,158'   // neutral
 #define THEME_BORDER          C'31,41,58'      // borders / separators
-#define THEME_ZONE_GOLD       C'56,44,10'      // golden zone fill
-#define THEME_ZONE_POCKET     C'82,63,10'      // golden pocket fill
-#define THEME_ZONE_HOT        C'92,72,14'      // golden zone once price has reached it
-#define THEME_POCKET_HOT      C'124,96,14'     // golden pocket once reached
 #define THEME_TP              C'0,230,168'     // take-profit levels
 #define THEME_TP_HOT          C'120,255,214'   // take-profit pulse
 #define THEME_SL              C'255,82,102'    // stop-loss level
-#define THEME_ROCKET          C'255,214,90'    // rocket glyph
+#define THEME_ADR_ON          C'0,255,180'     // ADRENALINE ON
+#define THEME_ADR_OFF         C'255,72,96'     // ADRENALINE OFF
 #define THEME_FIB             C'88,101,124'    // fib line default
 #define THEME_FIB_KEY         C'0,178,205'     // key fib line
 #define THEME_GANN            C'126,87,194'    // gann fan lines
@@ -206,9 +212,10 @@ input int               InpAnimMs            = 120;      // Animation frame time
 #define UI_BTN_W              22
 #define UI_KEY_W              104
 #define UI_SIG_H              29              // UI_ROW_H + 8
+#define UI_ADR_W              240             // عرض لافتة الأدرينالين
+#define UI_ADR_H              30              // ارتفاعها
 #define UI_FONT               "Segoe UI"
 #define UI_FONT_MONO          "Consolas"
-#define UI_FONT_EMOJI         "Segoe UI Emoji"
 #define UI_FS                 8
 #define UI_FS_SM              7
 #define UI_FS_TITLE           10
@@ -216,16 +223,16 @@ input int               InpAnimMs            = 120;      // Animation frame time
 #define UI_ZBACK              0
 #define UI_ZFRONT             10
 
-#define GFP_TF_COUNT          6
-#define GFP_FAN_COUNT         9
-#define GFP_FIB_COUNT         8
-#define GFP_EXT_COUNT         5
-#define GFP_DETAIL_ROWS       5
-#define GFP_MAX_SCORE         8
-#define GFP_FAN_MAIN_IDX      4               // index of 1x1 in g_fanRatio
-#define GFP_FIB_EQ_IDX        2               // index of 0.500
-#define GFP_FIB_618_IDX       3               // index of 0.618
-#define GFP_FIB_OTE_IDX       5               // index of 0.705
+#define ADR_TF_COUNT          6
+#define ADR_FAN_COUNT         9
+#define ADR_FIB_COUNT         8
+#define ADR_EXT_COUNT         5
+#define ADR_DETAIL_ROWS       5
+#define ADR_MAX_SCORE         8
+#define ADR_FAN_MAIN_IDX      4               // index of 1x1 in g_fanRatio
+#define ADR_FIB_EQ_IDX        2               // index of 0.500
+#define ADR_FIB_618_IDX       3               // index of 0.618
+#define ADR_FIB_OTE_IDX       5               // index of 0.705
 #define ARROW_BUY_CODE        233
 #define ARROW_SELL_CODE       234
 
@@ -263,6 +270,10 @@ struct SGfpState
    int               pulse;
    bool              uiBuilt;
    int               animFrame;           // عدّاد إطارات الحركة
+   int               trendDir;            // آخر اتجاه معلن (لكشف الانقلاب)
+   int               adrState;            // +1 = ADRENALINE ON، -1 = OFF، 0 = لا شيء
+   int               adrFlash;            // إطارات الوميض المتبقية بعد الانقلاب
+   bool              adrShown;            // اللافتة معروضة حالياً
    datetime          planBar;             // شمعة الإشارة التي تخصّها خطة التداول المرسومة
    bool              apprActive;          // علامة الاقتراب معروضة حالياً
 
@@ -276,6 +287,7 @@ struct SGfpState
       checkedBar = -1;
       legValid = false;
       zoneTouched = false;
+      trendDir = 0;
       lastAtr = 0.0;
       legDir = 0;
       legStartBar = legEndBar = -1;
@@ -319,24 +331,24 @@ int    g_hMtfF = INVALID_HANDLE;     // higher timeframe EMA fast
 int    g_hMtfS = INVALID_HANDLE;     // higher timeframe EMA slow
 
 //--- handles: dashboard timeframes
-ENUM_TIMEFRAMES g_tf[GFP_TF_COUNT] = {PERIOD_M1, PERIOD_M5, PERIOD_M15, PERIOD_M30, PERIOD_H1, PERIOD_H4};
-int    g_hTfEmaF[GFP_TF_COUNT];
-int    g_hTfEmaS[GFP_TF_COUNT];
-int    g_hTfRsi [GFP_TF_COUNT];
+ENUM_TIMEFRAMES g_tf[ADR_TF_COUNT] = {PERIOD_M1, PERIOD_M5, PERIOD_M15, PERIOD_M30, PERIOD_H1, PERIOD_H4};
+int    g_hTfEmaF[ADR_TF_COUNT];
+int    g_hTfEmaS[ADR_TF_COUNT];
+int    g_hTfRsi [ADR_TF_COUNT];
 
 //--- gann fan definition (price units per bar)
-double g_fanRatio[GFP_FAN_COUNT] = {0.125, 0.25, 0.3333333, 0.5, 1.0, 2.0, 3.0, 4.0, 8.0};
-string g_fanName [GFP_FAN_COUNT] = {"1x8", "1x4", "1x3", "1x2", "1x1", "2x1", "3x1", "4x1", "8x1"};
+double g_fanRatio[ADR_FAN_COUNT] = {0.125, 0.25, 0.3333333, 0.5, 1.0, 2.0, 3.0, 4.0, 8.0};
+string g_fanName [ADR_FAN_COUNT] = {"1x8", "1x4", "1x3", "1x2", "1x1", "2x1", "3x1", "4x1", "8x1"};
 
 //--- fibonacci definition
-double g_fibRet[GFP_FIB_COUNT] = {0.236, 0.382, 0.500, 0.618, 0.650, 0.705, 0.786, 0.886};
-double g_fibExt[GFP_EXT_COUNT] = {1.272, 1.414, 1.618, 2.000, 2.618};
+double g_fibRet[ADR_FIB_COUNT] = {0.236, 0.382, 0.500, 0.618, 0.650, 0.705, 0.786, 0.886};
+double g_fibExt[ADR_EXT_COUNT] = {1.272, 1.414, 1.618, 2.000, 2.618};
 
 //--- dashboard table column widths
 int    g_colW[5] = {46, 66, 50, 82, 84};
 
 //--- runtime state that is not part of the analysis STATE
-string g_prefix    = "GFP_";
+string g_prefix    = "ADR_";
 int    g_warmup    = 100;
 double g_sq9Scale  = 1.0;
 bool   g_uiEnabled = false;
@@ -388,7 +400,7 @@ T Clamp(T v, T lo, T hi)
 //--- تسجيل موحّد للأخطاء
 void LogErr(const string context, const int code = -1)
   {
-   PrintFormat("[GFP][%s] %s | err=%d", _Symbol, context, (code >= 0 ? code : GetLastError()));
+   PrintFormat("[ADR][%s] %s | err=%d", _Symbol, context, (code >= 0 ? code : GetLastError()));
    ResetLastError();
   }
 
@@ -403,7 +415,7 @@ string TfName(const ENUM_TIMEFRAMES tf)
 //--- نسبة زاوية جان المستخدمة كمرشّح
 double GannFilterRatioValue()
   {
-   int idx = Clamp((int)InpGannFilterRatio, 0, GFP_FAN_COUNT - 1);
+   int idx = Clamp((int)InpGannFilterRatio, 0, ADR_FAN_COUNT - 1);
    return g_fanRatio[idx];
   }
 
@@ -419,6 +431,40 @@ double Sq9Scale(const double price)
    while(p < 10000.0 && s < 1.0e8)  { p *= 10.0; s *= 10.0; }
    while(p >= 100000.0 && s > 1.0e-8) { p /= 10.0; s /= 10.0; }
    return s;
+  }
+
+//--- مكوّنات اللون (color في MQL5 مخزّن بالشكل 0x00BBGGRR)
+int ColR(const color c) { return (int)((uint)c        & 0xFF); }
+int ColG(const color c) { return (int)(((uint)c >>  8) & 0xFF); }
+int ColB(const color c) { return (int)(((uint)c >> 16) & 0xFF); }
+
+//--- تركيب لون من مكوّناته
+color ColMake(const int r, const int g, const int b)
+  {
+   int rr = Clamp(r, 0, 255), gg = Clamp(g, 0, 255), bb = Clamp(b, 0, 255);
+   return (color)((uint)((bb << 16) | (gg << 8) | rr));
+  }
+
+//--- مزج لونين: alpha = وزن اللون الأمامي (0..1)
+//    كائنات الشارت في MT5 بلا قناة شفافية، لذا نحاكي الشفافية بالمزج مع خلفية الشارت
+color ColBlend(const color fg, const color bg, const double alpha)
+  {
+   double a = (alpha < 0.0) ? 0.0 : ((alpha > 1.0) ? 1.0 : alpha);
+   return ColMake((int)MathRound(ColR(fg) * a + ColR(bg) * (1.0 - a)),
+                  (int)MathRound(ColG(fg) * a + ColG(bg) * (1.0 - a)),
+                  (int)MathRound(ColB(fg) * a + ColB(bg) * (1.0 - a)));
+  }
+
+//--- لون خلفية الشارت الحالي
+color ChartBg()
+  {
+   return (color)ChartGetInteger(0, CHART_COLOR_BACKGROUND);
+  }
+
+//--- لون الكتلة بنسبة الشفافية المطلوبة فوق خلفية الشارت
+color BlockColor(const color base)
+  {
+   return ColBlend(base, ChartBg(), InpBlockOpacity / 100.0);
   }
 
 //--- سعر منسّق للعرض
@@ -848,21 +894,6 @@ bool DrawLabel(const string id, const datetime t, const double price, const stri
    return true;
   }
 
-//--- رمز/إيموجي على الشارت (الصاروخ) — يدعم الدوران عبر OBJPROP_ANGLE
-bool DrawGlyph(const string id, const datetime t, const double price, const string glyph,
-               const color clr, const int fs, const double angleDeg)
-  {
-   if(!DrawObj(id, OBJ_TEXT, t, price, 0, 0.0, clr, 1, STYLE_SOLID, false, false))
-      return false;
-   string n = Prefix() + id;
-   ObjectSetString (0, n, OBJPROP_TEXT,     glyph);
-   ObjectSetString (0, n, OBJPROP_FONT,     UI_FONT_EMOJI);
-   ObjectSetInteger(0, n, OBJPROP_FONTSIZE, fs);
-   ObjectSetInteger(0, n, OBJPROP_ANCHOR,   ANCHOR_CENTER);
-   ObjectSetDouble (0, n, OBJPROP_ANGLE,    angleDeg);
-   return true;
-  }
-
 //--- سهم Wingdings على الشارت
 bool DrawArrowObj(const string id, const datetime t, const double price, const uchar code,
                   const color clr, const int width, const ENUM_ARROW_ANCHOR anchor)
@@ -894,7 +925,13 @@ bool DrawTag(const string id, const datetime t, const double price, const string
 //|            A N I M A T I O N   H E L P E R S                     |
 //+------------------------------------------------------------------+
 
-//--- إزاحة متذبذبة (ارتفاع/هبوط الصاروخ)
+//--- عدد إطارات الحركة في الثانية
+int FramesPerSecond()
+  {
+   return (int)MathMax(1, 1000 / (int)MathMax(50, InpAnimMs));
+  }
+
+//--- إزاحة متذبذبة
 double AnimBob(const double amplitude)
   {
    if(!InpAnimate)
@@ -952,50 +989,53 @@ void DrawFibonacci()
    if(!g_st.legValid)
       return;
 
+   //--- الطبقة كلها (فيبوناتشي + OTE) مخفية حتى يبلغها السعر
+   if(InpRevealOnTouch && !g_st.zoneTouched)
+      return;
+
    datetime tR = RightEdge();
+   int      dir = g_st.legDir;
 
-   //--- المنطقة الذهبية تبقى غير مرئية حتى يبلغها السعر (InpZoneRevealOnTouch)
-   bool reveal = (!InpZoneRevealOnTouch || g_st.zoneTouched);
-
-   //--- المنطقة الذهبية (OTE)
-   if(InpShowGoldenZone && reveal)
+   //--- كتلة الشراء/البيع الشفافة 40% فوق منطقة OTE
+   if(InpShowBlockZone)
      {
       double a = FibRetPrice(InpGZ_Start);
       double b = FibRetPrice(InpGZ_End);
-      DrawBox("FIB_GZONE", g_st.legEndTime, MathMax(a, b), tR, MathMin(a, b),
-              (g_st.zoneTouched ? THEME_ZONE_HOT : THEME_ZONE_GOLD));
-      DrawLabel("FIB_GZLBL", tR, (a + b) / 2.0,
-                (g_st.zoneTouched ? "GOLDEN ZONE (OTE) - ACTIVE" : "GOLDEN ZONE (OTE)"),
-                (g_st.zoneTouched ? THEME_GOLD : THEME_GOLD_DIM), UI_FS_SM);
+      color  block = BlockColor(dir > 0 ? THEME_BUY : THEME_SELL);
+      DrawBox("FIB_BLOCK", g_st.legEndTime, MathMax(a, b), tR, MathMin(a, b), block);
+      DrawLabel("FIB_BLOCKL", tR, (a + b) / 2.0,
+                StringFormat("%s BLOCK  %s - %s", (dir > 0 ? "BUY" : "SELL"),
+                             PriceStr(MathMin(a, b)), PriceStr(MathMax(a, b))),
+                (dir > 0 ? THEME_BUY : THEME_SELL), UI_FS);
      }
 
-   //--- الجيب الذهبي 0.618 - 0.650
-   if(InpShowGoldenPocket && reveal)
+   //--- الجيب الذهبي 0.618 - 0.650 داخل الكتلة (أغمق قليلاً)
+   if(InpShowGoldenPocket)
      {
-      double a = FibRetPrice(g_fibRet[GFP_FIB_618_IDX]);
-      double b = FibRetPrice(g_fibRet[GFP_FIB_618_IDX + 1]);
-      DrawBox("FIB_POCKET", g_st.legEndTime, MathMax(a, b), tR, MathMin(a, b),
-              (g_st.zoneTouched ? THEME_POCKET_HOT : THEME_ZONE_POCKET));
+      double a = FibRetPrice(g_fibRet[ADR_FIB_618_IDX]);
+      double b = FibRetPrice(g_fibRet[ADR_FIB_618_IDX + 1]);
+      color  pocket = ColBlend(THEME_GOLD, ChartBg(), MathMin(1.0, InpBlockOpacity / 100.0 + 0.15));
+      DrawBox("FIB_POCKET", g_st.legEndTime, MathMax(a, b), tR, MathMin(a, b), pocket);
      }
 
    //--- مستويات التصحيح
    if(InpShowFib)
      {
-      for(int k = 0; k < GFP_FIB_COUNT; k++)
+      for(int k = 0; k < ADR_FIB_COUNT; k++)
         {
-         if(k == GFP_FIB_EQ_IDX  && !InpShowEquilibrium) continue;
-         if(k == GFP_FIB_OTE_IDX && !InpShowOTE)         continue;
+         if(k == ADR_FIB_EQ_IDX  && !InpShowEquilibrium) continue;
+         if(k == ADR_FIB_OTE_IDX && !InpShowOTE)         continue;
 
          double r = g_fibRet[k];
          double p = FibRetPrice(r);
-         bool  key = (k == GFP_FIB_EQ_IDX || k == GFP_FIB_618_IDX || k == GFP_FIB_OTE_IDX);
+         bool  key = (k == ADR_FIB_EQ_IDX || k == ADR_FIB_618_IDX || k == ADR_FIB_OTE_IDX);
          color c   = key ? THEME_FIB_KEY : THEME_FIB;
          int   w   = key ? 2 : 1;
-         ENUM_LINE_STYLE s = (k == GFP_FIB_OTE_IDX) ? STYLE_DASHDOT : STYLE_DOT;
+         ENUM_LINE_STYLE s = (k == ADR_FIB_OTE_IDX) ? STYLE_DASHDOT : STYLE_DOT;
 
          string id  = StringFormat("FIB_R%d", (int)MathRound(r * 1000.0));
-         string tag = (k == GFP_FIB_EQ_IDX)  ? "0.500 EQ"
-                      : ((k == GFP_FIB_OTE_IDX) ? "0.705 OTE" : DoubleToString(r, 3));
+         string tag = (k == ADR_FIB_EQ_IDX)  ? "0.500 EQ"
+                      : ((k == ADR_FIB_OTE_IDX) ? "0.705 OTE" : DoubleToString(r, 3));
 
          DrawSegment(id, g_st.legEndTime, tR, p, c, w, s);
          DrawLabel(id + "L", tR, p, tag + "  " + PriceStr(p), c, UI_FS_SM);
@@ -1013,7 +1053,7 @@ void DrawFibonacci()
    //--- الامتدادات (الأهداف)
    if(InpShowFibExt)
      {
-      for(int k = 0; k < GFP_EXT_COUNT; k++)
+      for(int k = 0; k < ADR_EXT_COUNT; k++)
         {
          double e  = g_fibExt[k];
          double p  = FibExtPrice(e);
@@ -1040,11 +1080,11 @@ void DrawGannFan()
    int legBars   = (int)MathMax(1, g_st.legEndBar - g_st.legStartBar);
    int barsRight = InpExtendBars + legBars;
 
-   for(int k = 0; k < GFP_FAN_COUNT; k++)
+   for(int k = 0; k < ADR_FAN_COUNT; k++)
      {
       double q  = g_fanRatio[k];
       double p2 = g_st.legStartPrice + (double)g_st.legDir * g_st.gannUnit * q * (double)barsRight;
-      bool  main = (k == GFP_FAN_MAIN_IDX);
+      bool  main = (k == ADR_FAN_MAIN_IDX);
       color c    = main ? THEME_GANN_MAIN : THEME_GANN;
       int   w    = main ? 2 : 1;
       ENUM_LINE_STYLE s = main ? STYLE_SOLID : STYLE_DOT;
@@ -1162,7 +1202,8 @@ void DrawPivots()
 void DrawTradePlan()
   {
    //--- لا خطة: نظّف مرة واحدة فقط ثم اخرج
-   bool valid = (InpShowTradePlan && g_st.legValid &&
+   bool revealed = (!InpRevealOnTouch || g_st.zoneTouched);
+   bool valid = (InpShowTradePlan && revealed && g_st.legValid &&
                  g_st.lastSignalDir != 0 && g_st.lastSignalTime > 0 &&
                  g_st.lastSignalBar >= g_st.legEndBar);
    if(!valid)
@@ -1190,13 +1231,6 @@ void DrawTradePlan()
    datetime tL    = g_st.lastSignalTime;
    datetime tR    = RightEdge();
    double   atr   = (g_st.lastAtr > 0.0) ? g_st.lastAtr : MathAbs(entry) * 0.001;
-
-   //--- الصاروخ: يتأرجح رأسياً فوق/تحت سعر الدخول
-   double bob = AnimBob(atr * 0.35);
-   double rocketPrice = entry + (double)dir * (atr * 1.10) + bob;
-   DrawGlyph("PLAN_ROCKET", tL, rocketPrice, InpRocketGlyph,
-             AnimColor(THEME_ROCKET, THEME_GOLD), UI_FS_BIG + 6,
-             (dir > 0 ? 0.0 : 180.0));
 
    //--- خط الدخول
    DrawSegment("PLAN_ENTRY", tL, tR, entry, THEME_NEON, 2, STYLE_SOLID);
@@ -1305,6 +1339,43 @@ void DrawApproachMarker()
                RightEdge(), level, c, 1, STYLE_DOT);
   }
 
+//+------------------------------------------------------------------+
+//|      A D R E N A L I N E   T R E N D   B A N N E R               |
+//+------------------------------------------------------------------+
+void DrawAdrenaline()
+  {
+   //--- مطفأة: احذف اللافتة مرة واحدة
+   if(!g_uiEnabled || !InpShowAdrenaline || g_st.adrState == 0)
+     {
+      if(g_st.adrShown)
+        {
+         ObjectsDeleteAll(0, Prefix() + "ADRB_");
+         g_st.adrShown = false;
+        }
+      return;
+     }
+
+   bool  on       = (g_st.adrState > 0);
+   bool  flashing = (g_st.adrFlash > 0);
+   color base     = on ? THEME_ADR_ON : THEME_ADR_OFF;
+
+   //--- أثناء الوميض تنبض الحدود والنص، ثم تستقر اللافتة على لون ثابت
+   color border = flashing ? AnimColor(base, THEME_TEXT) : base;
+   color text   = flashing ? AnimColor(THEME_TEXT, base) : base;
+   color fill   = ColBlend(base, ChartBg(), flashing ? 0.30 : 0.15);
+
+   int chartW = Undpi((int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS));
+   int w = UI_ADR_W;
+   int h = UI_ADR_H;
+   int x = (int)MathMax(2, (chartW - w) / 2);
+   int y = (int)MathMax(2, InpAdrenalineY);
+
+   UiRect("ADRB_BG", x, y, w, h, fill, border);
+   UiCell("ADRB_TXT", x + 2, y + 3, w - 4, h - 6,
+          (on ? "ADRENALINE   ON" : "ADRENALINE   OFF"), text, fill, UI_FS_BIG);
+   g_st.adrShown = true;
+  }
+
 //--- إعادة رسم كل الطبقات السعرية دفعة واحدة
 void RedrawAll()
   {
@@ -1317,6 +1388,7 @@ void RedrawAll()
    DrawPivots();
    DrawTradePlan();
    DrawApproachMarker();
+   DrawAdrenaline();
    ChartRedraw();
   }
 
@@ -1325,10 +1397,13 @@ void AnimateOverlays()
   {
    if(!g_uiEnabled)
       return;
-   bool before = (g_st.planBar != 0) || g_st.apprActive;
+   bool before = (g_st.planBar != 0) || g_st.apprActive || g_st.adrShown;
+   if(g_st.adrFlash > 0)
+      g_st.adrFlash--;
    DrawTradePlan();
    DrawApproachMarker();
-   bool after  = (g_st.planBar != 0) || g_st.apprActive;
+   DrawAdrenaline();
+   bool after  = (g_st.planBar != 0) || g_st.apprActive || g_st.adrShown;
    if(before || after)               // لا إعادة رسم عندما لا يوجد شيء متحرك
       ChartRedraw();
   }
@@ -1346,9 +1421,9 @@ int PanelHeight()
    h += UI_ROW_H + UI_ROW_GAP;                          // score bar
    h += UI_SEP_H + UI_ROW_GAP + 2;                      // separator 1
    h += UI_ROW_SM + UI_ROW_GAP;                         // table header
-   h += GFP_TF_COUNT * (UI_ROW_SM + UI_ROW_GAP);        // timeframe rows
+   h += ADR_TF_COUNT * (UI_ROW_SM + UI_ROW_GAP);        // timeframe rows
    h += 2 + UI_SEP_H + UI_ROW_GAP + 2;                  // separator 2
-   h += GFP_DETAIL_ROWS * (UI_ROW_SM + UI_ROW_GAP);     // detail rows
+   h += ADR_DETAIL_ROWS * (UI_ROW_SM + UI_ROW_GAP);     // detail rows
    h += 2 + UI_SEP_H + UI_ROW_GAP;                      // separator 3
    h += UI_ROW_SM + UI_PAD;                             // footer
    return h;
@@ -1479,7 +1554,7 @@ void BuildPanel()
    //--- شريط العنوان
    UiRect("HEAD", x, y, w, UI_HEAD_H, THEME_HEADER, THEME_HEADER);
    UiCell("TITLE", cx, y + 5, cw - UI_BTN_W - UI_PAD, UI_HEAD_H - 10,
-          "GANN  •  FIBO  •  PRO", THEME_GOLD, THEME_HEADER, UI_FS_TITLE);
+          "ADRENALINE  B1000", THEME_GOLD, THEME_HEADER, UI_FS_TITLE);
    UiCell("BTN_MIN", x + w - UI_BTN_W - UI_PAD, y + 5, UI_BTN_W, UI_HEAD_H - 10,
           g_st.collapsed ? "+" : "-", THEME_NEON, THEME_BORDER, UI_FS_TITLE);
 
@@ -1497,8 +1572,8 @@ void BuildPanel()
 
    //--- صف: شريط نقاط التوافق
    UiCell("SCORELBL", cx, ry, 64, UI_ROW_H, "SCORE", THEME_TEXT_DIM, THEME_BG, UI_FS_SM);
-   int segW = (cw - 64 - 34) / GFP_MAX_SCORE;
-   for(int k = 0; k < GFP_MAX_SCORE; k++)
+   int segW = (cw - 64 - 34) / ADR_MAX_SCORE;
+   for(int k = 0; k < ADR_MAX_SCORE; k++)
       UiCell(StringFormat("SEG%d", k), cx + 64 + k * segW, ry + 4, segW - 2, UI_ROW_H - 8,
              "", THEME_BG, THEME_BORDER, UI_FS_SM);
    UiCell("SCORENUM", cx + cw - 32, ry, 32, UI_ROW_H, "0/8", THEME_TEXT, THEME_BG, UI_FS_SM);
@@ -1516,7 +1591,7 @@ void BuildPanel()
    ry += UI_ROW_SM + UI_ROW_GAP;
 
    //--- صفوف الأطر الزمنية
-   for(int r = 0; r < GFP_TF_COUNT; r++)
+   for(int r = 0; r < ADR_TF_COUNT; r++)
      {
       color rowBg = (r % 2 == 0) ? THEME_BG : THEME_BG_ALT;
       for(int c = 0; c < 5; c++)
@@ -1533,9 +1608,9 @@ void BuildPanel()
    ry += UI_SEP_H + UI_ROW_GAP + 2;
 
    //--- صفوف تفاصيل الموجة / جان / المنطقة الذهبية
-   string keys [GFP_DETAIL_ROWS] = {"LEG", "GZ", "GANN", "SQ9", "LAST"};
-   string names[GFP_DETAIL_ROWS] = {"IMPULSE LEG", "GOLDEN ZONE", "GANN 1x1", "SQUARE OF 9", "LAST SIGNAL"};
-   for(int k = 0; k < GFP_DETAIL_ROWS; k++)
+   string keys [ADR_DETAIL_ROWS] = {"LEG", "GZ", "GANN", "SQ9", "LAST"};
+   string names[ADR_DETAIL_ROWS] = {"IMPULSE LEG", "GOLDEN ZONE", "GANN 1x1", "SQUARE OF 9", "LAST SIGNAL"};
+   for(int k = 0; k < ADR_DETAIL_ROWS; k++)
      {
       UiCell("K" + keys[k], cx, ry, UI_KEY_W, UI_ROW_SM, names[k], THEME_TEXT_DIM, THEME_BG, UI_FS_SM);
       UiCell("V" + keys[k], cx + UI_KEY_W, ry, cw - UI_KEY_W, UI_ROW_SM, "-", THEME_TEXT, THEME_BG,
@@ -1564,16 +1639,16 @@ void ApplyCollapse()
                     "SEP1", "SEP2", "SEP3", "PULSE", "STATUS", "CLOCK"};
    for(int k = 0; k < ArraySize(hide); k++)
       UiShow(hide[k], vis);
-   for(int k = 0; k < GFP_MAX_SCORE; k++)
+   for(int k = 0; k < ADR_MAX_SCORE; k++)
       UiShow(StringFormat("SEG%d", k), vis);
    for(int c = 0; c < 5; c++)
       UiShow(StringFormat("TH%d", c), vis);
-   for(int r = 0; r < GFP_TF_COUNT; r++)
+   for(int r = 0; r < ADR_TF_COUNT; r++)
       for(int c = 0; c < 5; c++)
          UiShow(StringFormat("R%dC%d", r, c), vis);
 
-   string keys[GFP_DETAIL_ROWS] = {"LEG", "GZ", "GANN", "SQ9", "LAST"};
-   for(int k = 0; k < GFP_DETAIL_ROWS; k++)
+   string keys[ADR_DETAIL_ROWS] = {"LEG", "GZ", "GANN", "SQ9", "LAST"};
+   for(int k = 0; k < ADR_DETAIL_ROWS; k++)
      {
       UiShow("K" + keys[k], vis);
       UiShow("V" + keys[k], vis);
@@ -1660,15 +1735,15 @@ void RefreshPanel()
    UiSet("SIGBOX", sigTxt, sigFg, THEME_BG_ALT);
 
    //--- شريط النقاط
-   int   sc    = Clamp(g_st.lastSignalScore, 0, GFP_MAX_SCORE);
+   int   sc    = Clamp(g_st.lastSignalScore, 0, ADR_MAX_SCORE);
    color scClr = (g_st.lastSignalDir > 0) ? THEME_BUY
                  : ((g_st.lastSignalDir < 0) ? THEME_SELL : THEME_NEON);
-   for(int k = 0; k < GFP_MAX_SCORE; k++)
+   for(int k = 0; k < ADR_MAX_SCORE; k++)
       UiSet(StringFormat("SEG%d", k), "", THEME_BG, (k < sc ? scClr : THEME_BORDER));
-   UiSet("SCORENUM", StringFormat("%d/%d", sc, GFP_MAX_SCORE), THEME_TEXT);
+   UiSet("SCORENUM", StringFormat("%d/%d", sc, ADR_MAX_SCORE), THEME_TEXT);
 
    //--- جدول الأطر الزمنية
-   for(int r = 0; r < GFP_TF_COUNT; r++)
+   for(int r = 0; r < ADR_TF_COUNT; r++)
      {
       string trend, rsiTxt, structTxt, sig;
       color  tc, rc, stc, sgc;
@@ -1720,7 +1795,7 @@ void RefreshPanel()
                                   TimeToString(g_st.lastSignalTime, TIME_DATE | TIME_MINUTES),
                                   (g_st.lastSignalDir > 0 ? "BUY" : "SELL"),
                                   PriceStr(g_st.lastSignalPrice),
-                                  g_st.lastSignalScore, GFP_MAX_SCORE),
+                                  g_st.lastSignalScore, ADR_MAX_SCORE),
             (g_st.lastSignalDir > 0 ? THEME_BUY : THEME_SELL));
    else
       UiSet("VLAST", "none yet", THEME_TEXT_DIM);
@@ -1745,10 +1820,10 @@ void FireAlert(const int dir, const double price, const int score, const datetim
       return;
    g_st.lastAlertBar = barTime;
 
-   string msg = StringFormat("GannFiboPro | %s %s | %s @ %s | score %d/%d",
+   string msg = StringFormat("Adrenaline B1000 | %s %s | %s @ %s | score %d/%d",
                              _Symbol, TfName(Period()),
-                             (dir > 0 ? "BUY" : "SELL"), PriceStr(price), score, GFP_MAX_SCORE);
-   PrintFormat("[GFP] %s", msg);
+                             (dir > 0 ? "BUY" : "SELL"), PriceStr(price), score, ADR_MAX_SCORE);
+   PrintFormat("[ADR] %s", msg);
    if(InpAlertPopup)
       Alert(msg);
    if(InpAlertPush)
@@ -1765,26 +1840,26 @@ int OnInit()
    //--- التحقق من الإدخالات (fail fast)
    if(InpSwingN < 2)
      {
-      Print("[GFP] Swing strength must be >= 2");
+      Print("[ADR] Swing strength must be >= 2");
       return INIT_PARAMETERS_INCORRECT;
      }
    if(InpEmaFast >= InpEmaSlow)
      {
-      Print("[GFP] EMA fast must be smaller than EMA slow");
+      Print("[ADR] EMA fast must be smaller than EMA slow");
       return INIT_PARAMETERS_INCORRECT;
      }
    if(InpGZ_End <= InpGZ_Start || InpGZ_Start <= 0.0 || InpGZ_End >= 1.0)
      {
-      Print("[GFP] Golden Zone must satisfy 0 < start < end < 1");
+      Print("[ADR] Golden Zone must satisfy 0 < start < end < 1");
       return INIT_PARAMETERS_INCORRECT;
      }
    if(InpSq9Degrees <= 0.0 || InpSq9Steps < 0)
      {
-      Print("[GFP] Square of 9 settings are invalid");
+      Print("[ADR] Square of 9 settings are invalid");
       return INIT_PARAMETERS_INCORRECT;
      }
 
-   g_prefix    = "GFP" + IntegerToString(ChartID()) + "_";
+   g_prefix    = "ADR" + IntegerToString(ChartID()) + "_";
    //--- في وضع الإكسبيرت لا رسم ولا لوحة: نسخة iCustom تشارك نفس الشارت والبادئة
    //--- مع النسخة المرئية، فتتصادم الكائنات وتُحذف عند إنهاء أيهما.
    g_uiEnabled = (!MQLInfoInteger(MQL_OPTIMIZATION) && !InpEaMode);
@@ -1817,7 +1892,7 @@ int OnInit()
 
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
    IndicatorSetString(INDICATOR_SHORTNAME,
-                      StringFormat("GannFiboPro(%d, %.3f-%.3f, min %d)",
+                      StringFormat("Adrenaline B1000 (%d, %.3f-%.3f, min %d)",
                                    InpSwingN, InpGZ_Start, InpGZ_End, InpMinScore));
 
    //--- مقابض الإطار الحالي
@@ -1845,7 +1920,7 @@ int OnInit()
      }
 
    //--- مقابض لوحة الأطر الزمنية
-   for(int k = 0; k < GFP_TF_COUNT; k++)
+   for(int k = 0; k < ADR_TF_COUNT; k++)
      {
       g_hTfEmaF[k] = INVALID_HANDLE;
       g_hTfEmaS[k] = INVALID_HANDLE;
@@ -1853,7 +1928,7 @@ int OnInit()
      }
    if(g_uiEnabled && InpShowPanel)
      {
-      for(int k = 0; k < GFP_TF_COUNT; k++)
+      for(int k = 0; k < ADR_TF_COUNT; k++)
         {
          g_hTfEmaF[k] = iMA (_Symbol, g_tf[k], InpEmaFast,   0, MODE_EMA, PRICE_CLOSE);
          g_hTfEmaS[k] = iMA (_Symbol, g_tf[k], InpEmaSlow,   0, MODE_EMA, PRICE_CLOSE);
@@ -1867,6 +1942,10 @@ int OnInit()
    g_st.uiBuilt      = false;
    g_st.pulse        = 0;
    g_st.animFrame    = 0;
+   g_st.trendDir     = 0;
+   g_st.adrState     = 0;
+   g_st.adrFlash     = 0;
+   g_st.adrShown     = false;
    g_st.planBar      = 0;
    g_st.apprActive   = false;
    g_st.lastAlertBar = 0;
@@ -1882,8 +1961,8 @@ int OnInit()
    if(g_uiEnabled)
       EventSetMillisecondTimer((int)MathMax(50, InpAnimMs));
 
-   PrintFormat("[GFP] initialised on %s %s | warm-up %d bars | min score %d/%d",
-               _Symbol, TfName(Period()), g_warmup, InpMinScore, GFP_MAX_SCORE);
+   PrintFormat("[ADR] initialised on %s %s | warm-up %d bars | min score %d/%d",
+               _Symbol, TfName(Period()), g_warmup, InpMinScore, ADR_MAX_SCORE);
    return INIT_SUCCEEDED;
   }
 
@@ -1898,7 +1977,7 @@ void OnDeinit(const int reason)
    if(g_hAtr  != INVALID_HANDLE) IndicatorRelease(g_hAtr);
    if(g_hMtfF != INVALID_HANDLE) IndicatorRelease(g_hMtfF);
    if(g_hMtfS != INVALID_HANDLE) IndicatorRelease(g_hMtfS);
-   for(int k = 0; k < GFP_TF_COUNT; k++)
+   for(int k = 0; k < ADR_TF_COUNT; k++)
      {
       if(g_hTfEmaF[k] != INVALID_HANDLE) IndicatorRelease(g_hTfEmaF[k]);
       if(g_hTfEmaS[k] != INVALID_HANDLE) IndicatorRelease(g_hTfEmaS[k]);
@@ -2045,14 +2124,25 @@ int OnCalculate(const int rates_total, const int prev_calculated,
    if(rates_total - 1 < ArraySize(g_atr))
       g_st.lastAtr = g_atr[rates_total - 1];
 
-   //--- 6) كشف بلوغ المنطقة الذهبية — يحدث داخل الشمعة، لذا يُفحص كل تيك
+   //--- 6) انقلاب الاتجاه -> لافتة ADRENALINE ON / OFF
+   int trendNow = (g_st.legValid ? g_st.legDir : 0);
+   if(trendNow != 0 && trendNow != g_st.trendDir)
+     {
+      g_st.trendDir = trendNow;
+      g_st.adrState = trendNow;
+      g_st.adrFlash = InpAdrenalineFlashSec * FramesPerSecond();
+      legChanged    = true;
+      PrintFormat("[ADR] trend flip -> ADRENALINE %s", (trendNow > 0 ? "ON" : "OFF"));
+     }
+
+   //--- 7) كشف بلوغ منطقة OTE — يحدث داخل الشمعة، لذا يُفحص كل تيك
    if(g_st.legValid && !g_st.zoneTouched && ZoneReachedNow())
      {
       g_st.zoneTouched = true;
       legChanged = true;                          // أظهر المنطقة الآن
      }
 
-   //--- 7) تحديث الرسومات عند شمعة جديدة أو تغيّر الموجة
+   //--- 8) تحديث الرسومات عند شمعة جديدة أو تغيّر الموجة
    datetime curBarTime = time[rates_total - 1];
    if(g_uiEnabled && (legChanged || curBarTime != g_st.lastBarTime))
      {
@@ -2076,8 +2166,7 @@ void OnTimer()
    AnimateOverlays();
 
    //--- اللوحة وبيانات الأطر الزمنية مرة واحدة في الثانية تقريباً
-   int framesPerSecond = (int)MathMax(1, 1000 / (int)MathMax(50, InpAnimMs));
-   if(g_st.animFrame % framesPerSecond != 0)
+   if(g_st.animFrame % FramesPerSecond() != 0)
       return;
    if(!InpShowPanel || !g_st.uiBuilt)
       return;
