@@ -19,8 +19,8 @@
 #property description "Arrows are non-repainting: closed bars only, and the MTF filter reads a closed HTF bar."
 
 #property indicator_chart_window
-#property indicator_buffers 8
-#property indicator_plots   8
+#property indicator_buffers 10
+#property indicator_plots   10
 
 #property indicator_label1  "ADR Buy"
 #property indicator_type1   DRAW_ARROW
@@ -50,6 +50,17 @@
 
 #property indicator_label8  "ADR LegOrigin"   // leg 1.000 level = invalidation price (0 = none)
 #property indicator_type8   DRAW_NONE
+
+//--- أسهم الاقتراب من زاوية جان / خط الاتجاه — دائمة ولا تُعاد رسمها
+#property indicator_label9   "ADR Gann Buy"
+#property indicator_type9    DRAW_ARROW
+#property indicator_color9   clrMediumPurple
+#property indicator_width9   2
+
+#property indicator_label10  "ADR Gann Sell"
+#property indicator_type10   DRAW_ARROW
+#property indicator_color10  clrOrange
+#property indicator_width10  2
 
 //+------------------------------------------------------------------+
 //| TYPES — التعدادات المستخدمة في الإدخالات                          |
@@ -164,6 +175,8 @@ input double            InpTp3Fib            = 3.618;    // TP3 level
 input double            InpTp4Fib            = 4.236;    // TP4 level
 input bool              InpShowApproachArrow = true;     // "GANN BUY" arrow before price touches Gann / trendline
 input double            InpApproachAtr       = 0.35;     // Approach distance (x ATR)
+input int                InpApproachMinBars  = 10;       // Min bars between two approach arrows
+input int                InpApproachTagMax   = 200;      // How many "GANN BUY" text tags to draw
 input bool              InpAnimate           = true;     // Animate the levels and the banner
 input int               InpAnimMs            = 120;      // Animation frame time (ms)
 
@@ -193,6 +206,8 @@ input int               InpAdrenalineY        = 30;      // Banner Y offset from
 #define THEME_TP              C'0,230,168'     // take-profit levels
 #define THEME_TP_HOT          C'120,255,214'   // take-profit pulse
 #define THEME_SL              C'255,82,102'    // stop-loss level
+#define THEME_APPR_BUY        clrMediumPurple  // سهم الاقتراب صعوداً (يطابق لون البافر)
+#define THEME_APPR_SELL       clrOrange        // سهم الاقتراب هبوطاً
 #define THEME_ADR_ON          C'0,255,180'     // ADRENALINE ON
 #define THEME_ADR_OFF         C'255,72,96'     // ADRENALINE OFF
 #define THEME_FIB             C'88,101,124'    // fib line default
@@ -233,6 +248,10 @@ input int               InpAdrenalineY        = 30;      // Banner Y offset from
 #define ADR_FIB_COUNT         8
 #define ADR_EXT_COUNT         4
 #define ADR_SIG_MAX           1000            // أقصى عدد إشارات محفوظة في السجل
+#define ADR_KIND_SIGNAL       0               // سهم التوافق الرئيسي
+#define ADR_KIND_APPROACH     1               // سهم الاقتراب من جان / خط الاتجاه
+#define ARROW_APPR_BUY_CODE   241
+#define ARROW_APPR_SELL_CODE  242
 #define ADR_DETAIL_ROWS       5
 #define ADR_MAX_SCORE         8
 #define ADR_FAN_MAIN_IDX      4               // index of 1x1 in g_fanRatio
@@ -281,7 +300,7 @@ struct SGfpState
    int               adrFlash;            // إطارات الوميض المتبقية بعد الانقلاب
    bool              adrShown;            // اللافتة معروضة حالياً
    datetime          planBar;             // شمعة الإشارة التي تخصّها خطة التداول المرسومة
-   bool              apprActive;          // علامة الاقتراب معروضة حالياً
+   int               lastApprBar;         // آخر شمعة صدر عندها سهم اقتراب
 
    //--- إعادة ضبط حالة التحليل فقط (حالة الواجهة تبقى)
    void Reset()
@@ -302,6 +321,7 @@ struct SGfpState
       gannUnit = 0.0;
       legSignals = 0;
       lastSignalBar = -1;
+      lastApprBar = -1;
       lastSignalDir = 0;
       lastSignalPrice = 0.0;
       lastSignalScore = 0;
@@ -324,6 +344,8 @@ struct SSigRec
    int               score;     // نقاط التوافق وقت الإطلاق
    double            close;     // إغلاق شمعة الإشارة
    double            arrow;     // سعر رسم السهم — يُحفظ حتى لا يتحرك أبداً
+   int               kind;      // ADR_KIND_SIGNAL أو ADR_KIND_APPROACH
+   string            tag;       // نص السهم ("GANN BUY" ...) — لأسهم الاقتراب
   };
 
 SSigRec g_sig[];
@@ -338,6 +360,8 @@ double g_bufLegDir[];      // اتجاه الموجة النشطة عند كل �
 double g_bufZoneHi[];      // الحد الأعلى للمنطقة الذهبية
 double g_bufZoneLo[];      // الحد الأدنى للمنطقة الذهبية
 double g_bufLegOrig[];     // مستوى 1.000 (نقطة إبطال الموجة)
+double g_bufApprBuy[];     // سهم الاقتراب صعوداً (جان / خط اتجاه)
+double g_bufApprSell[];    // سهم الاقتراب هبوطاً
 
 //--- cached indicator series of the CHART timeframe (indexed by absolute bar)
 double g_emaF[];
@@ -534,10 +558,10 @@ void SigAppend(const SSigRec &r)
   }
 
 //--- هل الشمعة مسجّلة أصلاً؟
-bool SigHas(const datetime t)
+bool SigHas(const datetime t, const int kind)
   {
    for(int i = g_sigCount - 1; i >= 0; i--)
-      if(g_sig[i].time == t)
+      if(g_sig[i].time == t && g_sig[i].kind == kind)
          return true;
    return false;
   }
@@ -554,9 +578,9 @@ void SigSave()
       return;
      }
    for(int i = 0; i < g_sigCount; i++)
-      FileWrite(h, StringFormat("%I64d;%d;%d;%.10f;%.10f",
+      FileWrite(h, StringFormat("%I64d;%d;%d;%.10f;%.10f;%d;%s",
                                 (long)g_sig[i].time, g_sig[i].dir, g_sig[i].score,
-                                g_sig[i].close, g_sig[i].arrow));
+                                g_sig[i].close, g_sig[i].arrow, g_sig[i].kind, g_sig[i].tag));
    FileClose(h);
   }
 
@@ -583,7 +607,8 @@ void SigLoad()
          continue;
       if(StringGetCharacter(line, 0) == 0xFEFF)  // BOM لا تزيله دوال التشذيب
          line = StringSubstr(line, 1);
-      if(StringSplit(line, sep, parts) < 5)
+      int n = StringSplit(line, sep, parts);
+      if(n < 5)
          continue;
 
       SSigRec r;
@@ -592,6 +617,9 @@ void SigLoad()
       r.score = (int)StringToInteger(parts[2]);
       r.close = StringToDouble(parts[3]);
       r.arrow = StringToDouble(parts[4]);
+      //--- الحقلان الأخيران أضيفا لاحقاً: الملفات القديمة (5 حقول) كلها إشارات رئيسية
+      r.kind  = (n >= 6) ? (int)StringToInteger(parts[5]) : ADR_KIND_SIGNAL;
+      r.tag   = (n >= 7) ? parts[6] : "";
       if(r.time <= 0 || r.dir == 0 || r.arrow <= 0.0)
          continue;
       SigAppend(r);
@@ -603,11 +631,12 @@ void SigLoad()
 
 //--- تسجيل إشارة أطلقت للتو (حيّة فقط)
 void SigAdd(const datetime t, const int dir, const int score,
-            const double closePrice, const double arrowPrice)
+            const double closePrice, const double arrowPrice,
+            const int kind, const string tag)
   {
    if(!InpPersistArrows || t <= 0 || dir == 0 || arrowPrice <= 0.0)
       return;
-   if(SigHas(t))
+   if(SigHas(t, kind))
       return;
    SSigRec r;
    r.time  = t;
@@ -615,6 +644,8 @@ void SigAdd(const datetime t, const int dir, const int score,
    r.score = score;
    r.close = closePrice;
    r.arrow = arrowPrice;
+   r.kind  = kind;
+   r.tag   = tag;
    SigAppend(r);
    SigSave();
   }
@@ -651,6 +682,14 @@ void SigStamp(const datetime &time[], const int rates_total, const int from)
       int idx = BarIndexOfTime(time, rates_total, g_sig[k].time);
       if(idx < 0 || idx > last)
          continue;
+      if(g_sig[k].kind == ADR_KIND_APPROACH)
+        {
+         if(g_sig[k].dir > 0)
+            g_bufApprBuy[idx]  = g_sig[k].arrow;
+         else
+            g_bufApprSell[idx] = g_sig[k].arrow;
+         continue;                               // أسهم الاقتراب لا تلمس بافري الإشارة
+        }
       if(g_sig[k].dir > 0)
          g_bufBuy[idx]  = g_sig[k].arrow;
       else
@@ -991,6 +1030,67 @@ int EvaluateSignal(const int i, const datetime &time[], const double &open[], co
    return score;
   }
 
+//--- سهم الاقتراب: هل لامست الشمعة i نطاق زاوية جان أو خط الاتجاه دون كسره؟
+//    يُقيَّم على شمعة مغلقة داخل حلقة الحساب، فلا يتحرك ولا يُعاد تقييمه أبداً.
+int ApproachAt(const int i, const double &high[], const double &low[], const double &close[],
+               string &tagOut)
+  {
+   tagOut = "";
+   if(!InpShowApproachArrow || !g_st.legValid)
+      return 0;
+   int dir = g_st.legDir;
+   if(dir == 0 || i >= ArraySize(g_atr))
+      return 0;
+   double atr = g_atr[i];
+   if(atr <= 0.0)
+      return 0;
+   if(g_st.lastApprBar >= 0 && (i - g_st.lastApprBar) < InpApproachMinBars)
+      return 0;                                   // تهدئة: لا تكرار وهو يلامس الخط
+
+   double thr   = atr * InpApproachAtr;
+   double ref   = (dir > 0) ? low[i] : high[i];
+   bool   armed = false;
+   double level = 0.0;
+   string src   = "";
+
+   //--- زاوية جان المستخدمة كمرشّح
+   double gv = GannValueAt(GannFilterRatioValue(), i);
+   if(gv > 0.0)
+     {
+      bool near = (dir > 0) ? (low[i] <= gv + thr && close[i] > gv)
+                  : (high[i] >= gv - thr && close[i] < gv);
+      if(near)
+        {
+         armed = true;
+         level = gv;
+         src   = "GANN";
+        }
+     }
+
+   //--- خط الاتجاه التلقائي — يفوز إن كان الأقرب
+   double tv = 0.0;
+   if(dir > 0 && HasSupTrendline())
+      tv = TrendlineValueAt(g_st.prevLoBar, g_st.prevLoPrice, g_st.lastLoBar, g_st.lastLoPrice, i);
+   if(dir < 0 && HasResTrendline())
+      tv = TrendlineValueAt(g_st.prevHiBar, g_st.prevHiPrice, g_st.lastHiBar, g_st.lastHiPrice, i);
+   if(tv > 0.0)
+     {
+      bool near = (dir > 0) ? (low[i] <= tv + thr && close[i] > tv)
+                  : (high[i] >= tv - thr && close[i] < tv);
+      if(near && (!armed || MathAbs(ref - tv) < MathAbs(ref - level)))
+        {
+         armed = true;
+         level = tv;
+         src   = "TREND";
+        }
+     }
+
+   if(!armed)
+      return 0;
+   tagOut = src + (dir > 0 ? " BUY" : " SELL");
+   return dir;
+  }
+
 //+------------------------------------------------------------------+
 //|            D R A W  —  price/time anchored objects               |
 //+------------------------------------------------------------------+
@@ -1123,14 +1223,6 @@ bool DrawTag(const string id, const datetime t, const double price, const string
 int FramesPerSecond()
   {
    return (int)MathMax(1, 1000 / (int)MathMax(50, InpAnimMs));
-  }
-
-//--- إزاحة متذبذبة
-double AnimBob(const double amplitude)
-  {
-   if(!InpAnimate)
-      return 0.0;
-   return MathSin((double)g_st.animFrame * 0.30) * amplitude;
   }
 
 //--- نبضة عرض الخط بين قيمتين
@@ -1450,81 +1542,29 @@ void DrawTradePlan()
   }
 
 //+------------------------------------------------------------------+
-//|  A P P R O A C H  —  "GANN BUY" before price touches the line    |
+//|  A P P R O A C H   T A G S  —  "GANN BUY" text on each arrow     |
 //+------------------------------------------------------------------+
-void DrawApproachMarker()
+//  الأسهم نفسها تعيش في البافرين 8 و 9 فلا تُحذف أبداً؛ هذه الدالة تعيد
+//  رسم النصوص من السجل فقط، أي أنها إسقاط للسجل وليست مصدراً للحقيقة.
+void DrawApproachTags()
   {
-   int dir = g_st.legValid ? g_st.legDir : 0;
-   double atr = g_st.lastAtr;
-   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-
-   bool   armed = false;
-   double level = 0.0;
-   string source = "";
-
-   if(InpShowApproachArrow && dir != 0 && atr > 0.0 && bid > 0.0)
-     {
-      double thr    = atr * InpApproachAtr;
-      int    curBar = Bars(_Symbol, _Period) - 1;
-
-      //--- زاوية جان المستخدمة كمرشّح
-      double gv = GannValueAt(GannFilterRatioValue(), curBar);
-      if(gv > 0.0 && MathAbs(bid - gv) <= thr &&
-         ((dir > 0 && bid >= gv) || (dir < 0 && bid <= gv)))
-        {
-         armed  = true;
-         level  = gv;
-         source = "GANN";
-        }
-
-      //--- خط الاتجاه التلقائي (أولوية أعلى إن كان أقرب)
-      double tv = 0.0;
-      if(dir > 0 && HasSupTrendline())
-         tv = TrendlineValueAt(g_st.prevLoBar, g_st.prevLoPrice, g_st.lastLoBar, g_st.lastLoPrice, curBar);
-      if(dir < 0 && HasResTrendline())
-         tv = TrendlineValueAt(g_st.prevHiBar, g_st.prevHiPrice, g_st.lastHiBar, g_st.lastHiPrice, curBar);
-      if(tv > 0.0 && MathAbs(bid - tv) <= thr &&
-         ((dir > 0 && bid >= tv) || (dir < 0 && bid <= tv)))
-        {
-         if(!armed || MathAbs(bid - tv) < MathAbs(bid - level))
-           {
-            armed  = true;
-            level  = tv;
-            source = "TREND";
-           }
-        }
-     }
-
-   //--- انطفأت العلامة: نظّف مرة واحدة
-   if(!armed)
-     {
-      if(g_st.apprActive)
-        {
-         ClearGroup("APPR_");
-         g_st.apprActive = false;
-        }
+   ClearGroup("APPR_");
+   if(!InpShowApproachArrow || InpApproachTagMax <= 0 || g_sigCount <= 0)
       return;
+
+   int drawn = 0;
+   for(int k = g_sigCount - 1; k >= 0 && drawn < InpApproachTagMax; k--)
+     {
+      if(g_sig[k].kind != ADR_KIND_APPROACH)
+         continue;
+      color c = (g_sig[k].dir > 0) ? THEME_APPR_BUY : THEME_APPR_SELL;
+      DrawTag("APPR_T" + IntegerToString((long)g_sig[k].time),
+              g_sig[k].time, g_sig[k].arrow,
+              (StringLen(g_sig[k].tag) > 0 ? g_sig[k].tag
+               : (g_sig[k].dir > 0 ? "GANN BUY" : "GANN SELL")),
+              c, UI_FS_SM, (g_sig[k].dir > 0 ? ANCHOR_UPPER : ANCHOR_LOWER));
+      drawn++;
      }
-   datetime t = iTime(_Symbol, _Period, 0);
-   if(t <= 0)
-      return;
-   g_st.apprActive = true;
-
-   //--- السهم أسفل المستوى للشراء، أعلاه للبيع، مع نبضة حركة
-   double gap  = atr * (0.45 + (InpAnimate ? MathAbs(AnimBob(0.12)) : 0.0));
-   double pArw = level - (double)dir * gap;
-
-   color c = (dir > 0) ? AnimColor(THEME_BUY, THEME_NEON) : AnimColor(THEME_SELL, THEME_GOLD);
-   DrawArrowObj("APPR_ARROW", t, pArw, (uchar)(dir > 0 ? ARROW_BUY_CODE : ARROW_SELL_CODE),
-                c, AnimWidth(2, 4), (dir > 0 ? ANCHOR_TOP : ANCHOR_BOTTOM));
-
-   string txt = source + (dir > 0 ? " BUY" : " SELL");
-   DrawTag("APPR_TEXT", t, pArw - (double)dir * atr * 0.55, txt, c, UI_FS,
-           (dir > 0 ? ANCHOR_UPPER : ANCHOR_LOWER));
-
-   //--- خط رفيع يوضّح المستوى الذي يقترب منه السعر
-   DrawSegment("APPR_LVL", (datetime)(t - (datetime)(PeriodSeconds() * 6)),
-               RightEdge(), level, c, 1, STYLE_DOT);
   }
 
 //+------------------------------------------------------------------+
@@ -1579,7 +1619,7 @@ void RedrawAll()
    DrawTrendlines();
    DrawPivots();
    DrawTradePlan();
-   DrawApproachMarker();
+   DrawApproachTags();
    DrawAdrenaline();
    ChartRedraw();
   }
@@ -1589,13 +1629,12 @@ void AnimateOverlays()
   {
    if(!g_uiEnabled)
       return;
-   bool before = (g_st.planBar != 0) || g_st.apprActive || g_st.adrShown;
+   bool before = (g_st.planBar != 0) || g_st.adrShown;
    if(g_st.adrFlash > 0)
       g_st.adrFlash--;
    DrawTradePlan();
-   DrawApproachMarker();
    DrawAdrenaline();
-   bool after  = (g_st.planBar != 0) || g_st.apprActive || g_st.adrShown;
+   bool after  = (g_st.planBar != 0) || g_st.adrShown;
    if(before || after)               // لا إعادة رسم عندما لا يوجد شيء متحرك
       ChartRedraw();
   }
@@ -2070,9 +2109,15 @@ int OnInit()
    SetIndexBuffer(5, g_bufZoneHi,  INDICATOR_DATA);
    SetIndexBuffer(6, g_bufZoneLo,  INDICATOR_DATA);
    SetIndexBuffer(7, g_bufLegOrig, INDICATOR_DATA);
+   SetIndexBuffer(8, g_bufApprBuy,  INDICATOR_DATA);
+   SetIndexBuffer(9, g_bufApprSell, INDICATOR_DATA);
 
    PlotIndexSetInteger(0, PLOT_ARROW, ARROW_BUY_CODE);
    PlotIndexSetInteger(1, PLOT_ARROW, ARROW_SELL_CODE);
+   PlotIndexSetInteger(8, PLOT_ARROW, ARROW_APPR_BUY_CODE);
+   PlotIndexSetInteger(9, PLOT_ARROW, ARROW_APPR_SELL_CODE);
+   PlotIndexSetDouble(8, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(9, PLOT_EMPTY_VALUE, EMPTY_VALUE);
    PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, EMPTY_VALUE);
    PlotIndexSetDouble(1, PLOT_EMPTY_VALUE, EMPTY_VALUE);
    PlotIndexSetDouble(2, PLOT_EMPTY_VALUE, 0.0);
@@ -2086,6 +2131,8 @@ int OnInit()
    g_warmup = (int)MathMax(g_warmup, InpAtrPeriod + 2);
    PlotIndexSetInteger(0, PLOT_DRAW_BEGIN, g_warmup);
    PlotIndexSetInteger(1, PLOT_DRAW_BEGIN, g_warmup);
+   PlotIndexSetInteger(8, PLOT_DRAW_BEGIN, g_warmup);
+   PlotIndexSetInteger(9, PLOT_DRAW_BEGIN, g_warmup);
 
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
    IndicatorSetString(INDICATOR_SHORTNAME,
@@ -2147,7 +2194,6 @@ int OnInit()
    g_st.adrFlash     = 0;
    g_st.adrShown     = false;
    g_st.planBar      = 0;
-   g_st.apprActive   = false;
    g_st.lastAlertBar = 0;
    g_st.lastBarTime  = 0;
 
@@ -2216,7 +2262,9 @@ int OnCalculate(const int rates_total, const int prev_calculated,
       ArrayInitialize(g_bufLegDir,  0.0);
       ArrayInitialize(g_bufZoneHi,  0.0);
       ArrayInitialize(g_bufZoneLo,  0.0);
-      ArrayInitialize(g_bufLegOrig, 0.0);
+      ArrayInitialize(g_bufLegOrig,  0.0);
+      ArrayInitialize(g_bufApprBuy,  EMPTY_VALUE);
+      ArrayInitialize(g_bufApprSell, EMPTY_VALUE);
       g_st.Reset();
       start = limitStart;
      }
@@ -2245,7 +2293,9 @@ int OnCalculate(const int rates_total, const int prev_calculated,
       g_bufLegDir[i]  = 0.0;
       g_bufZoneHi[i]  = 0.0;
       g_bufZoneLo[i]  = 0.0;
-      g_bufLegOrig[i] = 0.0;
+      g_bufLegOrig[i]  = 0.0;
+      g_bufApprBuy[i]  = EMPTY_VALUE;
+      g_bufApprSell[i] = EMPTY_VALUE;
 
       //--- 1) تأكيد القمم والقيعان (على شموع مغلقة فقط لمنع إعادة الرسم)
       if(i <= rates_total - 2)
@@ -2290,8 +2340,28 @@ int OnCalculate(const int rates_total, const int prev_calculated,
          g_bufLegOrig[i] = g_st.legStartPrice;
         }
 
-      //--- 4) الإشارات على الشموع المغلقة فقط
-      if(!InpShowArrows || i > rates_total - 2)
+      //--- 4) الأسهم على الشموع المغلقة فقط
+      if(i > rates_total - 2)
+         continue;
+
+      //--- 4a) سهم الاقتراب من زاوية جان / خط الاتجاه — مستقل عن إشارة التوافق
+      string apprTag = "";
+      int    apprDir = ApproachAt(i, high, low, close, apprTag);
+      if(apprDir != 0)
+        {
+         double aOff   = g_atr[i] * InpArrowOffsetAtr;
+         double aPrice = (apprDir > 0) ? low[i] - aOff : high[i] + aOff;
+         if(apprDir > 0)
+            g_bufApprBuy[i]  = aPrice;
+         else
+            g_bufApprSell[i] = aPrice;
+         g_st.lastApprBar = i;
+         if(!fullRebuild && i == rates_total - 2)
+            SigAdd(time[i], apprDir, 0, close[i], aPrice, ADR_KIND_APPROACH, apprTag);
+        }
+
+      //--- 4b) سهم التوافق الرئيسي
+      if(!InpShowArrows)
          continue;
 
       int dir   = 0;
@@ -2318,7 +2388,8 @@ int OnCalculate(const int rates_total, const int prev_calculated,
       //--- تنبيه + تسجيل دائم على آخر شمعة مغلقة فقط، وفي التشغيل الحي فقط
       if(!fullRebuild && i == rates_total - 2)
         {
-         SigAdd(time[i], dir, score, close[i], (dir > 0 ? g_bufBuy[i] : g_bufSell[i]));
+         SigAdd(time[i], dir, score, close[i], (dir > 0 ? g_bufBuy[i] : g_bufSell[i]),
+                ADR_KIND_SIGNAL, "");
          FireAlert(dir, close[i], score, time[i]);
         }
      }

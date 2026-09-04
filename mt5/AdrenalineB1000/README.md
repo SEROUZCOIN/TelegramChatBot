@@ -123,7 +123,8 @@ enforce that:
    makes a 5/8 signal score 6/8 after a reload, and the arrow appears or vanishes. The indicator
    therefore steps back one bar and reads the last H1 bar that was definitely closed at that moment.
    The filter is marginally staler; in exchange the score is reproducible.
-5. **A ledger on disk.** Every arrow that actually printed live is recorded to
+5. **A ledger on disk.** Every arrow that actually printed live — confluence arrows *and* Gann /
+   trendline approach arrows — is recorded to
    `MQL5\Files\AdrenalineB1000\ADR_<symbol>_<timeframe>.txt` — bar time, direction, score, close
    and the exact plotted price. After **every** recalculation the ledger is stamped back onto the
    buffers, so a printed arrow survives a timeframe switch, a history top-up, a reconnect, a
@@ -176,12 +177,18 @@ When a signal fires, an entry line and `R:R 1 : x.xx` (entry → SL against entr
 TP1 pulses in colour and width, driven by one timer at `InpAnimMs` (default 120 ms).
 `InpAnimate = false` freezes the animation without removing anything.
 
-**"GANN BUY" approach arrow.** Before price touches the Gann fan filter line or the auto trendline,
-an arrow appears just past that level with the text `GANN BUY` / `GANN SELL` (or `TREND BUY` /
-`TREND SELL` when the trendline is nearer), plus a dotted line marking the level being approached.
-It arms when price is within `InpApproachAtr` × ATR of the level **and on the correct side of it**
-for the active leg, and clears itself once price moves away. Since the Fibonacci layer is hidden
-until the touch, this arrow is your pre-touch cue.
+**"GANN BUY" approach arrow — permanent, like the main arrows.** When a **closed** bar reaches within
+`InpApproachAtr` × ATR of the Gann fan filter line or the auto trendline *and closes on the correct
+side of it*, a purple (buy) or orange (sell) arrow prints on that bar with a `GANN BUY` / `GANN SELL`
+tag — `TREND BUY` / `TREND SELL` when the trendline is the nearer of the two. Since the Fibonacci
+layer is hidden until the touch, this arrow is your pre-touch cue.
+
+It lives in its own pair of indicator buffers (8 and 9), is evaluated once per closed bar inside the
+calculation loop, and goes into the same on-disk ledger as the confluence arrows — so it is
+non-repainting and never deleted, by exactly the same five mechanisms. `InpApproachMinBars` (default
+10) stops it firing again and again while price hugs the line. The text tags are redrawn from the
+ledger rather than stored, capped at `InpApproachTagMax` (default 200) so a long history does not
+flood the chart with objects; the arrows themselves are uncapped.
 
 **ADRENALINE trend banner.** When the impulse leg flips direction, a banner appears in the
 **bottom-right corner** of the chart (`InpAdrenalineCorner`, so it can be moved): **ADRENALINE ON**
@@ -206,6 +213,8 @@ over identically named objects on the same chart.
 | 5 | Golden Zone upper price (`0` = none) | shift 0 |
 | 6 | Golden Zone lower price (`0` = none) | shift 0 |
 | 7 | Leg origin = the 1.000 invalidation level (`0` = none) | shift 0 |
+| 8 | Gann / trendline approach arrow, buy — price of the arrow | signal bar |
+| 9 | Gann / trendline approach arrow, sell — price of the arrow | signal bar |
 
 ```mql5
 int h = iCustom(_Symbol, PERIOD_CURRENT, "AdrenalineB1000\\AdrenalineB1000");  // defaults
@@ -297,6 +306,8 @@ bundled `AdrenalineB1000EA.mq5` reads exactly these.
 | `InpTp4Fib` | 4.236 | TP4 level. |
 | `InpShowApproachArrow` | true | Show the `GANN BUY` / `TREND BUY` arrow before price touches the line. |
 | `InpApproachAtr` | 0.35 | How close price must be to arm that arrow, in ATR. |
+| `InpApproachMinBars` | 10 | Minimum bars between two approach arrows. |
+| `InpApproachTagMax` | 200 | How many `GANN BUY` text tags to draw. Arrows themselves are uncapped. |
 | `InpAnimate` | true | Animate the plan levels and the banner. |
 | `InpAnimMs` | 120 | Animation frame time in milliseconds. The dashboard still refreshes once per second. |
 
