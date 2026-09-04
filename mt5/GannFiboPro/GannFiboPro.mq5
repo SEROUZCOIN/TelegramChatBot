@@ -148,6 +148,18 @@ input bool              InpAlertPush         = false;    // Push notification (m
 input bool              InpAlertSound        = true;     // Play sound on new signal
 input string            InpAlertSoundFile    = "alert2.wav"; // Sound file
 
+input group "=========  10. SIGNAL VISUALS  ========="
+input bool              InpZoneRevealOnTouch = true;     // Golden Zone invisible until price reaches it
+input bool              InpShowTradePlan     = true;     // Rocket + Entry / SL / TP on the last signal
+input string            InpRocketGlyph       = "🚀";     // Rocket glyph (change if your PC cannot render it)
+input double            InpPlanSlFib         = 1.000;    // SL at this retracement level
+input double            InpPlanTp1Fib        = 1.272;    // TP1 at this extension level
+input double            InpPlanTp2Fib        = 1.618;    // TP2 at this extension level
+input bool              InpShowApproachArrow = true;     // "GANN BUY" arrow before price touches Gann / trendline
+input double            InpApproachAtr       = 0.35;     // Approach distance (x ATR)
+input bool              InpAnimate           = true;     // Animate the rocket and the levels
+input int               InpAnimMs            = 120;      // Animation frame time (ms)
+
 //+------------------------------------------------------------------+
 //| THEME — مكتبة الألوان: لا يوجد لون خام خارج هذه الكتلة            |
 //+------------------------------------------------------------------+
@@ -166,6 +178,12 @@ input string            InpAlertSoundFile    = "alert2.wav"; // Sound file
 #define THEME_BORDER          C'31,41,58'      // borders / separators
 #define THEME_ZONE_GOLD       C'56,44,10'      // golden zone fill
 #define THEME_ZONE_POCKET     C'82,63,10'      // golden pocket fill
+#define THEME_ZONE_HOT        C'92,72,14'      // golden zone once price has reached it
+#define THEME_POCKET_HOT      C'124,96,14'     // golden pocket once reached
+#define THEME_TP              C'0,230,168'     // take-profit levels
+#define THEME_TP_HOT          C'120,255,214'   // take-profit pulse
+#define THEME_SL              C'255,82,102'    // stop-loss level
+#define THEME_ROCKET          C'255,214,90'    // rocket glyph
 #define THEME_FIB             C'88,101,124'    // fib line default
 #define THEME_FIB_KEY         C'0,178,205'     // key fib line
 #define THEME_GANN            C'126,87,194'    // gann fan lines
@@ -190,6 +208,7 @@ input string            InpAlertSoundFile    = "alert2.wav"; // Sound file
 #define UI_SIG_H              29              // UI_ROW_H + 8
 #define UI_FONT               "Segoe UI"
 #define UI_FONT_MONO          "Consolas"
+#define UI_FONT_EMOJI         "Segoe UI Emoji"
 #define UI_FS                 8
 #define UI_FS_SM              7
 #define UI_FS_TITLE           10
@@ -223,6 +242,8 @@ struct SGfpState
    int               checkedBar;          // آخر شمعة فُحصت كمرشّح قمة/قاع
    //--- active impulse leg
    bool              legValid;
+   bool              zoneTouched;         // بلغ السعر المنطقة الذهبية على هذه الموجة
+   double            lastAtr;             // ATR آخر شمعة — لقياسات الرسم
    int               legDir;              // +1 = up leg (low->high), -1 = down leg
    int               legStartBar, legEndBar;
    double            legStartPrice, legEndPrice;
@@ -241,6 +262,9 @@ struct SGfpState
    bool              collapsed;
    int               pulse;
    bool              uiBuilt;
+   int               animFrame;           // عدّاد إطارات الحركة
+   datetime          planBar;             // شمعة الإشارة التي تخصّها خطة التداول المرسومة
+   bool              apprActive;          // علامة الاقتراب معروضة حالياً
 
    //--- إعادة ضبط حالة التحليل فقط (حالة الواجهة تبقى)
    void Reset()
@@ -251,6 +275,8 @@ struct SGfpState
       lastSwingIsHigh = false;
       checkedBar = -1;
       legValid = false;
+      zoneTouched = false;
+      lastAtr = 0.0;
       legDir = 0;
       legStartBar = legEndBar = -1;
       legStartPrice = legEndPrice = 0.0;
@@ -445,6 +471,7 @@ void SetLeg(const int dir, const int sBar, const double sPrice, const datetime s
    g_st.legEndPrice   = ePrice;
    g_st.legEndTime    = eTime;
    g_st.legSignals    = 0;
+   g_st.zoneTouched   = false;          // منطقة ذهبية جديدة — تعود مخفية
    g_st.gannUnit      = (InpGannAutoUnit || InpGannManualUnit <= 0.0)
                         ? range / (double)bars
                         : InpGannManualUnit;
@@ -821,6 +848,91 @@ bool DrawLabel(const string id, const datetime t, const double price, const stri
    return true;
   }
 
+//--- رمز/إيموجي على الشارت (الصاروخ) — يدعم الدوران عبر OBJPROP_ANGLE
+bool DrawGlyph(const string id, const datetime t, const double price, const string glyph,
+               const color clr, const int fs, const double angleDeg)
+  {
+   if(!DrawObj(id, OBJ_TEXT, t, price, 0, 0.0, clr, 1, STYLE_SOLID, false, false))
+      return false;
+   string n = Prefix() + id;
+   ObjectSetString (0, n, OBJPROP_TEXT,     glyph);
+   ObjectSetString (0, n, OBJPROP_FONT,     UI_FONT_EMOJI);
+   ObjectSetInteger(0, n, OBJPROP_FONTSIZE, fs);
+   ObjectSetInteger(0, n, OBJPROP_ANCHOR,   ANCHOR_CENTER);
+   ObjectSetDouble (0, n, OBJPROP_ANGLE,    angleDeg);
+   return true;
+  }
+
+//--- سهم Wingdings على الشارت
+bool DrawArrowObj(const string id, const datetime t, const double price, const uchar code,
+                  const color clr, const int width, const ENUM_ARROW_ANCHOR anchor)
+  {
+   if(!DrawObj(id, OBJ_ARROW, t, price, 0, 0.0, clr, width, STYLE_SOLID, false, false))
+      return false;
+   string n = Prefix() + id;
+   ObjectSetInteger(0, n, OBJPROP_ARROWCODE, code);
+   ObjectSetInteger(0, n, OBJPROP_ANCHOR,    anchor);
+   ObjectSetInteger(0, n, OBJPROP_WIDTH,     width);
+   return true;
+  }
+
+//--- نص على الشارت بخط اختياري ومحاذاة اختيارية
+bool DrawTag(const string id, const datetime t, const double price, const string text,
+             const color clr, const int fs, const ENUM_ANCHOR_POINT anchor)
+  {
+   if(!DrawObj(id, OBJ_TEXT, t, price, 0, 0.0, clr, 1, STYLE_SOLID, false, false))
+      return false;
+   string n = Prefix() + id;
+   ObjectSetString (0, n, OBJPROP_TEXT,     text);
+   ObjectSetString (0, n, OBJPROP_FONT,     UI_FONT);
+   ObjectSetInteger(0, n, OBJPROP_FONTSIZE, fs);
+   ObjectSetInteger(0, n, OBJPROP_ANCHOR,   anchor);
+   return true;
+  }
+
+//+------------------------------------------------------------------+
+//|            A N I M A T I O N   H E L P E R S                     |
+//+------------------------------------------------------------------+
+
+//--- إزاحة متذبذبة (ارتفاع/هبوط الصاروخ)
+double AnimBob(const double amplitude)
+  {
+   if(!InpAnimate)
+      return 0.0;
+   return MathSin((double)g_st.animFrame * 0.30) * amplitude;
+  }
+
+//--- نبضة عرض الخط بين قيمتين
+int AnimWidth(const int lo, const int hi)
+  {
+   if(!InpAnimate)
+      return lo;
+   return ((g_st.animFrame / 4) % 2 == 0) ? lo : hi;
+  }
+
+//--- نبضة لون بين لونين
+color AnimColor(const color a, const color b)
+  {
+   if(!InpAnimate)
+      return a;
+   return ((g_st.animFrame / 4) % 2 == 0) ? a : b;
+  }
+
+//--- هل بلغ السعر المنطقة الذهبية على الموجة النشطة؟
+bool ZoneReachedNow()
+  {
+   if(!g_st.legValid)
+      return false;
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   if(bid <= 0.0)
+      return false;
+   double a = FibRetPrice(InpGZ_Start);
+   double b = FibRetPrice(InpGZ_End);
+   if(g_st.legDir > 0)
+      return (bid <= MathMax(a, b));      // هبط إلى حافة 0.618
+   return (bid >= MathMin(a, b));         // صعد إلى حافة 0.618
+  }
+
 //--- حذف مجموعة رسومات حسب بادئة فرعية
 void ClearGroup(const string sub)
   {
@@ -842,21 +954,28 @@ void DrawFibonacci()
 
    datetime tR = RightEdge();
 
+   //--- المنطقة الذهبية تبقى غير مرئية حتى يبلغها السعر (InpZoneRevealOnTouch)
+   bool reveal = (!InpZoneRevealOnTouch || g_st.zoneTouched);
+
    //--- المنطقة الذهبية (OTE)
-   if(InpShowGoldenZone)
+   if(InpShowGoldenZone && reveal)
      {
       double a = FibRetPrice(InpGZ_Start);
       double b = FibRetPrice(InpGZ_End);
-      DrawBox("FIB_GZONE", g_st.legEndTime, MathMax(a, b), tR, MathMin(a, b), THEME_ZONE_GOLD);
-      DrawLabel("FIB_GZLBL", tR, (a + b) / 2.0, "GOLDEN ZONE (OTE)", THEME_GOLD, UI_FS_SM);
+      DrawBox("FIB_GZONE", g_st.legEndTime, MathMax(a, b), tR, MathMin(a, b),
+              (g_st.zoneTouched ? THEME_ZONE_HOT : THEME_ZONE_GOLD));
+      DrawLabel("FIB_GZLBL", tR, (a + b) / 2.0,
+                (g_st.zoneTouched ? "GOLDEN ZONE (OTE) - ACTIVE" : "GOLDEN ZONE (OTE)"),
+                (g_st.zoneTouched ? THEME_GOLD : THEME_GOLD_DIM), UI_FS_SM);
      }
 
    //--- الجيب الذهبي 0.618 - 0.650
-   if(InpShowGoldenPocket)
+   if(InpShowGoldenPocket && reveal)
      {
       double a = FibRetPrice(g_fibRet[GFP_FIB_618_IDX]);
       double b = FibRetPrice(g_fibRet[GFP_FIB_618_IDX + 1]);
-      DrawBox("FIB_POCKET", g_st.legEndTime, MathMax(a, b), tR, MathMin(a, b), THEME_ZONE_POCKET);
+      DrawBox("FIB_POCKET", g_st.legEndTime, MathMax(a, b), tR, MathMin(a, b),
+              (g_st.zoneTouched ? THEME_POCKET_HOT : THEME_ZONE_POCKET));
      }
 
    //--- مستويات التصحيح
@@ -1037,6 +1156,155 @@ void DrawPivots()
      }
   }
 
+//+------------------------------------------------------------------+
+//|   T R A D E   P L A N  —  rocket + entry / SL / TP (animated)    |
+//+------------------------------------------------------------------+
+void DrawTradePlan()
+  {
+   //--- لا خطة: نظّف مرة واحدة فقط ثم اخرج
+   bool valid = (InpShowTradePlan && g_st.legValid &&
+                 g_st.lastSignalDir != 0 && g_st.lastSignalTime > 0 &&
+                 g_st.lastSignalBar >= g_st.legEndBar);
+   if(!valid)
+     {
+      if(g_st.planBar != 0)
+        {
+         ClearGroup("PLAN_");
+         g_st.planBar = 0;
+        }
+      return;
+     }
+
+   //--- إشارة جديدة: امسح خطة الإشارة السابقة
+   if(g_st.planBar != g_st.lastSignalTime)
+     {
+      ClearGroup("PLAN_");
+      g_st.planBar = g_st.lastSignalTime;
+     }
+
+   int      dir   = g_st.lastSignalDir;
+   double   entry = g_st.lastSignalPrice;
+   double   sl    = FibRetPrice(InpPlanSlFib);
+   double   tp1   = FibExtPrice(InpPlanTp1Fib);
+   double   tp2   = FibExtPrice(InpPlanTp2Fib);
+   datetime tL    = g_st.lastSignalTime;
+   datetime tR    = RightEdge();
+   double   atr   = (g_st.lastAtr > 0.0) ? g_st.lastAtr : MathAbs(entry) * 0.001;
+
+   //--- الصاروخ: يتأرجح رأسياً فوق/تحت سعر الدخول
+   double bob = AnimBob(atr * 0.35);
+   double rocketPrice = entry + (double)dir * (atr * 1.10) + bob;
+   DrawGlyph("PLAN_ROCKET", tL, rocketPrice, InpRocketGlyph,
+             AnimColor(THEME_ROCKET, THEME_GOLD), UI_FS_BIG + 6,
+             (dir > 0 ? 0.0 : 180.0));
+
+   //--- خط الدخول
+   DrawSegment("PLAN_ENTRY", tL, tR, entry, THEME_NEON, 2, STYLE_SOLID);
+   DrawLabel("PLAN_ENTRYL", tR, entry,
+             StringFormat("%s  %s", (dir > 0 ? "BUY" : "SELL"), PriceStr(entry)),
+             THEME_NEON, UI_FS);
+
+   //--- وقف الخسارة عند مستوى فيبوناتشي
+   DrawSegment("PLAN_SL", tL, tR, sl, THEME_SL, AnimWidth(1, 2), STYLE_DASH);
+   DrawLabel("PLAN_SLL", tR, sl,
+             StringFormat("SL %.3f  %s", InpPlanSlFib, PriceStr(sl)), THEME_SL, UI_FS_SM);
+
+   //--- الأهداف عند امتدادات فيبوناتشي
+   DrawSegment("PLAN_TP1", tL, tR, tp1, AnimColor(THEME_TP, THEME_TP_HOT), AnimWidth(2, 3), STYLE_DASH);
+   DrawLabel("PLAN_TP1L", tR, tp1,
+             StringFormat("TP1 %.3f  %s", InpPlanTp1Fib, PriceStr(tp1)),
+             AnimColor(THEME_TP, THEME_TP_HOT), UI_FS_SM);
+
+   DrawSegment("PLAN_TP2", tL, tR, tp2, THEME_TP, AnimWidth(1, 2), STYLE_DOT);
+   DrawLabel("PLAN_TP2L", tR, tp2,
+             StringFormat("TP2 %.3f  %s", InpPlanTp2Fib, PriceStr(tp2)), THEME_TP, UI_FS_SM);
+
+   //--- نسبة العائد إلى المخاطرة
+   double risk   = MathAbs(entry - sl);
+   double reward = MathAbs(tp1 - entry);
+   if(risk > 0.0)
+      DrawLabel("PLAN_RR", tR, entry + (double)dir * atr * 0.45,
+                StringFormat("R:R  1 : %.2f", reward / risk), THEME_TEXT_DIM, UI_FS_SM);
+  }
+
+//+------------------------------------------------------------------+
+//|  A P P R O A C H  —  "GANN BUY" before price touches the line    |
+//+------------------------------------------------------------------+
+void DrawApproachMarker()
+  {
+   int dir = g_st.legValid ? g_st.legDir : 0;
+   double atr = g_st.lastAtr;
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+
+   bool   armed = false;
+   double level = 0.0;
+   string source = "";
+
+   if(InpShowApproachArrow && dir != 0 && atr > 0.0 && bid > 0.0)
+     {
+      double thr    = atr * InpApproachAtr;
+      int    curBar = Bars(_Symbol, _Period) - 1;
+
+      //--- زاوية جان المستخدمة كمرشّح
+      double gv = GannValueAt(GannFilterRatioValue(), curBar);
+      if(gv > 0.0 && MathAbs(bid - gv) <= thr &&
+         ((dir > 0 && bid >= gv) || (dir < 0 && bid <= gv)))
+        {
+         armed  = true;
+         level  = gv;
+         source = "GANN";
+        }
+
+      //--- خط الاتجاه التلقائي (أولوية أعلى إن كان أقرب)
+      double tv = 0.0;
+      if(dir > 0 && HasSupTrendline())
+         tv = TrendlineValueAt(g_st.prevLoBar, g_st.prevLoPrice, g_st.lastLoBar, g_st.lastLoPrice, curBar);
+      if(dir < 0 && HasResTrendline())
+         tv = TrendlineValueAt(g_st.prevHiBar, g_st.prevHiPrice, g_st.lastHiBar, g_st.lastHiPrice, curBar);
+      if(tv > 0.0 && MathAbs(bid - tv) <= thr &&
+         ((dir > 0 && bid >= tv) || (dir < 0 && bid <= tv)))
+        {
+         if(!armed || MathAbs(bid - tv) < MathAbs(bid - level))
+           {
+            armed  = true;
+            level  = tv;
+            source = "TREND";
+           }
+        }
+     }
+
+   //--- انطفأت العلامة: نظّف مرة واحدة
+   if(!armed)
+     {
+      if(g_st.apprActive)
+        {
+         ClearGroup("APPR_");
+         g_st.apprActive = false;
+        }
+      return;
+     }
+   datetime t = iTime(_Symbol, _Period, 0);
+   if(t <= 0)
+      return;
+   g_st.apprActive = true;
+
+   //--- السهم أسفل المستوى للشراء، أعلاه للبيع، مع نبضة حركة
+   double gap  = atr * (0.45 + (InpAnimate ? MathAbs(AnimBob(0.12)) : 0.0));
+   double pArw = level - (double)dir * gap;
+
+   color c = (dir > 0) ? AnimColor(THEME_BUY, THEME_NEON) : AnimColor(THEME_SELL, THEME_GOLD);
+   DrawArrowObj("APPR_ARROW", t, pArw, (uchar)(dir > 0 ? ARROW_BUY_CODE : ARROW_SELL_CODE),
+                c, AnimWidth(2, 4), (dir > 0 ? ANCHOR_TOP : ANCHOR_BOTTOM));
+
+   string txt = source + (dir > 0 ? " BUY" : " SELL");
+   DrawTag("APPR_TEXT", t, pArw - (double)dir * atr * 0.55, txt, c, UI_FS,
+           (dir > 0 ? ANCHOR_UPPER : ANCHOR_LOWER));
+
+   //--- خط رفيع يوضّح المستوى الذي يقترب منه السعر
+   DrawSegment("APPR_LVL", (datetime)(t - (datetime)(PeriodSeconds() * 6)),
+               RightEdge(), level, c, 1, STYLE_DOT);
+  }
+
 //--- إعادة رسم كل الطبقات السعرية دفعة واحدة
 void RedrawAll()
   {
@@ -1047,7 +1315,22 @@ void RedrawAll()
    DrawSquareOf9();
    DrawTrendlines();
    DrawPivots();
+   DrawTradePlan();
+   DrawApproachMarker();
    ChartRedraw();
+  }
+
+//--- تحديث الطبقات المتحركة فقط (يُستدعى من المؤقّت)
+void AnimateOverlays()
+  {
+   if(!g_uiEnabled)
+      return;
+   bool before = (g_st.planBar != 0) || g_st.apprActive;
+   DrawTradePlan();
+   DrawApproachMarker();
+   bool after  = (g_st.planBar != 0) || g_st.apprActive;
+   if(before || after)               // لا إعادة رسم عندما لا يوجد شيء متحرك
+      ChartRedraw();
   }
 
 //+------------------------------------------------------------------+
@@ -1583,6 +1866,9 @@ int OnInit()
    g_st.collapsed    = false;
    g_st.uiBuilt      = false;
    g_st.pulse        = 0;
+   g_st.animFrame    = 0;
+   g_st.planBar      = 0;
+   g_st.apprActive   = false;
    g_st.lastAlertBar = 0;
    g_st.lastBarTime  = 0;
 
@@ -1591,8 +1877,10 @@ int OnInit()
       g_chartW = (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS);
       g_chartH = (int)ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS);
       BuildPanel();
-      EventSetTimer(1);
      }
+   //--- مؤقّت واحد يخدم الحركة واللوحة معاً
+   if(g_uiEnabled)
+      EventSetMillisecondTimer((int)MathMax(50, InpAnimMs));
 
    PrintFormat("[GFP] initialised on %s %s | warm-up %d bars | min score %d/%d",
                _Symbol, TfName(Period()), g_warmup, InpMinScore, GFP_MAX_SCORE);
@@ -1753,7 +2041,18 @@ int OnCalculate(const int rates_total, const int prev_calculated,
          FireAlert(dir, close[i], score, time[i]);
      }
 
-   //--- 5) تحديث الرسومات عند شمعة جديدة أو تغيّر الموجة
+   //--- 5) خزّن ATR الأخير (تستخدمه طبقات الرسم والحركة)
+   if(rates_total - 1 < ArraySize(g_atr))
+      g_st.lastAtr = g_atr[rates_total - 1];
+
+   //--- 6) كشف بلوغ المنطقة الذهبية — يحدث داخل الشمعة، لذا يُفحص كل تيك
+   if(g_st.legValid && !g_st.zoneTouched && ZoneReachedNow())
+     {
+      g_st.zoneTouched = true;
+      legChanged = true;                          // أظهر المنطقة الآن
+     }
+
+   //--- 7) تحديث الرسومات عند شمعة جديدة أو تغيّر الموجة
    datetime curBarTime = time[rates_total - 1];
    if(g_uiEnabled && (legChanged || curBarTime != g_st.lastBarTime))
      {
@@ -1768,7 +2067,19 @@ int OnCalculate(const int rates_total, const int prev_calculated,
 //+------------------------------------------------------------------+
 void OnTimer()
   {
-   if(!g_uiEnabled || !InpShowPanel || !g_st.uiBuilt)
+   if(!g_uiEnabled)
+      return;
+
+   g_st.animFrame++;
+
+   //--- كل إطار: الصاروخ وعلامة الاقتراب فقط (كائنات قليلة، تحديث في المكان)
+   AnimateOverlays();
+
+   //--- اللوحة وبيانات الأطر الزمنية مرة واحدة في الثانية تقريباً
+   int framesPerSecond = (int)MathMax(1, 1000 / (int)MathMax(50, InpAnimMs));
+   if(g_st.animFrame % framesPerSecond != 0)
+      return;
+   if(!InpShowPanel || !g_st.uiBuilt)
       return;
 
    //--- نبضة الحالة الحية

@@ -102,6 +102,40 @@ are only confirmed from closed bars, so an arrow never appears and disappears on
 The drawn *levels* do move when a new swing confirms — that is the intended behaviour of any
 auto-Fibonacci/Gann tool, not repainting of the signals.
 
+### 2.6b Signal visuals
+
+Three chart layers sit on top of the levels. All of them live in the indicator, so they appear
+whenever the indicator is on the chart — the EA's hidden `iCustom` copy draws nothing.
+
+**Golden Zone reveals on touch.** With `InpZoneRevealOnTouch` on (default), the Golden Zone and
+Golden Pocket boxes are **not drawn at all** while price is still away from them. The 0.618 line
+itself stays visible, so you always know where the edge is; the filled boxes appear — in a brighter
+gold — the moment price actually reaches the zone. The chart stays clean and the zone only shouts
+when it matters. The reveal is checked every tick, not once per bar, so it catches an intrabar
+touch. It resets with each new impulse leg. Turn the input off to have the boxes always drawn.
+
+**Animated rocket trade plan.** When a signal fires, the indicator draws the full plan on the chart:
+
+| Element | Level |
+|---|---|
+| 🚀 rocket, bobbing above the entry (rotated 180° for a sell) | entry ± ATR |
+| Entry line, solid neon | the signal bar's close |
+| `SL` line, dashed red | `InpPlanSlFib` retracement — default 1.000, the leg origin |
+| `TP1` line, pulsing green | `InpPlanTp1Fib` extension — default 1.272 |
+| `TP2` line, dotted green | `InpPlanTp2Fib` extension — default 1.618 |
+| `R:R 1 : x.xx` | computed from entry, SL and TP1 |
+
+The rocket bobs, the TP1 line pulses in colour and width, and the SL width breathes — all driven by
+one timer at `InpAnimMs` (default 120 ms). `InpAnimate = false` freezes everything without removing
+it. If your machine cannot render the emoji, change `InpRocketGlyph` to any character you like.
+
+**"GANN BUY" approach arrow.** Before price touches the Gann fan filter line or the auto trendline,
+an arrow appears just past that level with the text `GANN BUY` / `GANN SELL` (or `TREND BUY` /
+`TREND SELL` when the trendline is the nearer of the two), plus a dotted line marking the level
+being approached. It arms when price is within `InpApproachAtr` × ATR of the level **and on the
+correct side of it** for the active leg's direction, and it disappears by itself once price moves
+away or through. This is the early warning that fires *before* the confluence arrow does.
+
 ### 2.7 EA integration — exported buffers
 
 `InpEaMode` is deliberately the **first** input. An EA that loads the indicator through `iCustom`
@@ -197,6 +231,20 @@ bundled `GannFiboProEA.mq5` reads exactly these.
 | `InpAtrPeriod` | 14 | ATR for arrow offset and leg size filter. |
 | `InpArrowOffsetAtr` | 0.60 | Arrow distance from the candle, in ATR. |
 | `InpMinLegAtr` | 2.0 | Reject impulses smaller than this many ATR. |
+
+### 10. Signal visuals
+| Input | Default | Description |
+|---|---|---|
+| `InpZoneRevealOnTouch` | true | Keep the Golden Zone boxes invisible until price reaches the zone. |
+| `InpShowTradePlan` | true | Draw the rocket plus entry / SL / TP lines on the last signal. |
+| `InpRocketGlyph` | 🚀 | Glyph used for the rocket. Change it if your system cannot render emoji. |
+| `InpPlanSlFib` | 1.000 | Retracement level used as the plan's stop loss. |
+| `InpPlanTp1Fib` | 1.272 | Extension level used as TP1. |
+| `InpPlanTp2Fib` | 1.618 | Extension level used as TP2. |
+| `InpShowApproachArrow` | true | Show the `GANN BUY` / `TREND BUY` arrow before price touches the line. |
+| `InpApproachAtr` | 0.35 | How close price must be to arm that arrow, in ATR. |
+| `InpAnimate` | true | Animate the rocket and the plan levels. |
+| `InpAnimMs` | 120 | Animation frame time in milliseconds. The dashboard still refreshes once per second. |
 
 ### 8–9. Dashboard and alerts
 | Input | Default | Description |
