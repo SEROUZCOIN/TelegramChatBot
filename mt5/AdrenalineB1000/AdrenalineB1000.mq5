@@ -11,11 +11,12 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, Serro Deriv"
 #property link      ""
-#property version   "2.00"
+#property version   "2.10"
 #property description "Adrenaline B1000 — by Serro Deriv"
 #property description "Gann Fan + Auto Trendlines + Fibonacci OTE Block Zone + Square of 9 + Pivots"
 #property description "Levels stay hidden until price reaches them, then a 40% Buy/Sell block appears"
 #property description "with Fibonacci-based SL and TP, plus the ADRENALINE trend banner."
+#property description "Arrows are non-repainting: closed bars only, and the MTF filter reads a closed HTF bar."
 
 #property indicator_chart_window
 #property indicator_buffers 8
@@ -167,7 +168,9 @@ input int               InpAnimMs            = 120;      // Animation frame time
 input group "=========  11. ADRENALINE TREND BANNER  ========="
 input bool              InpShowAdrenaline    = true;     // Show the ADRENALINE ON / OFF banner
 input int               InpAdrenalineFlashSec = 8;       // Seconds of strong flashing after a trend flip
-input int               InpAdrenalineY        = 60;      // Banner distance from the top (px)
+input ENUM_PANEL_CORNER InpAdrenalineCorner   = PC_RIGHT_LOWER; // Banner corner
+input int               InpAdrenalineX        = 14;      // Banner X offset from that corner (px)
+input int               InpAdrenalineY        = 30;      // Banner Y offset from that corner (px)
 
 //+------------------------------------------------------------------+
 //| THEME — مكتبة الألوان: لا يوجد لون خام خارج هذه الكتلة            |
@@ -652,6 +655,13 @@ int MtfTrendAt(const datetime t)
    int shift = iBarShift(_Symbol, InpMtfTimeframe, t, false);
    if(shift < 0)
       return 0;
+
+   //--- منع إعادة الرسم: الشمعة رقم shift هي التي تحتوي اللحظة t، وكانت لا تزال
+   //--- قيد التكوّن عند إغلاق شمعة الإشارة؛ قيمتها اللحظية آنذاك تختلف عن قيمتها
+   //--- النهائية بعد إغلاقها، فتتغيّر النقاط عند إعادة حساب التاريخ ويظهر/يختفي
+   //--- السهم. لذلك نقرأ دائماً الشمعة الأعلى السابقة — المغلقة يقيناً وقت t.
+   shift += 1;
+
    double f = 0.0, s = 0.0;
    if(!ReadOne(g_hMtfF, 0, shift, f) || !ReadOne(g_hMtfS, 0, shift, s))
       return 0;
@@ -1364,11 +1374,15 @@ void DrawAdrenaline()
    color text   = flashing ? AnimColor(THEME_TEXT, base) : base;
    color fill   = ColBlend(base, ChartBg(), flashing ? 0.30 : 0.15);
 
+   //--- الأصل يُحسب من زاوية الشارت المختارة (كل كائنات الواجهة CORNER_LEFT_UPPER داخلياً)
    int chartW = Undpi((int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS));
+   int chartH = Undpi((int)ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS));
    int w = UI_ADR_W;
    int h = UI_ADR_H;
-   int x = (int)MathMax(2, (chartW - w) / 2);
-   int y = (int)MathMax(2, InpAdrenalineY);
+   bool right = (InpAdrenalineCorner == PC_RIGHT_UPPER || InpAdrenalineCorner == PC_RIGHT_LOWER);
+   bool lower = (InpAdrenalineCorner == PC_LEFT_LOWER  || InpAdrenalineCorner == PC_RIGHT_LOWER);
+   int x = right ? (int)MathMax(2, chartW - w - InpAdrenalineX) : (int)MathMax(2, InpAdrenalineX);
+   int y = lower ? (int)MathMax(2, chartH - h - InpAdrenalineY) : (int)MathMax(2, InpAdrenalineY);
 
    UiRect("ADRB_BG", x, y, w, h, fill, border);
    UiCell("ADRB_TXT", x + 2, y + 3, w - 4, h - 6,

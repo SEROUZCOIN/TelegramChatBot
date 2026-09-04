@@ -103,10 +103,32 @@ That mandatory condition is worth 2 points; each additional filter adds 1:
 An arrow prints when `score ≥ InpMinScore` (default 5/8). Additional guards: minimum impulse size
 in ATR, max signals per leg, minimum bars between signals.
 
-**Non-repainting:** arrows are written only to closed bars (`rates_total − 2` and older) and swings
-are only confirmed from closed bars, so an arrow never appears and disappears on the same bar.
-The drawn *levels* do move when a new swing confirms — that is the intended behaviour of any
-auto-Fibonacci/Gann tool, not repainting of the signals.
+### 2.6a Non-repainting — what is guaranteed, and what is not
+
+An arrow, once printed, stays exactly where it printed. Four things enforce that:
+
+1. **Closed bars only.** Signals are written to `rates_total − 2` and older. The forming bar is
+   cleared every tick and never receives an arrow.
+2. **Swings need both sides.** A swing at bar `c` is confirmed only when bar `c + InpSwingN` closes,
+   using a window of bars that are all closed. A swing is therefore never revised.
+3. **Write-forward only.** The calculation loop writes `buffer[i]` while processing bar `i` and never
+   goes back to an earlier index. There is no path that rewrites a printed arrow.
+4. **The MTF filter reads a *closed* higher-timeframe bar.** This is the one that actually bites.
+   `iBarShift` returns the H1 bar *containing* the signal bar — which was still forming when the M5
+   bar closed, so its EMA value at that instant differs from its final value. Reading it directly
+   makes a 5/8 signal score 6/8 after a reload, and the arrow appears or vanishes. The indicator
+   therefore steps back one bar and reads the last H1 bar that was definitely closed at that moment.
+   The filter is marginally staler; in exchange the score is reproducible.
+
+Two honest caveats:
+
+* The **levels move** when a new swing confirms — new leg, new Fibonacci, new fan. That is what any
+  auto-Fibonacci or Gann tool does; it is not the arrows repainting. Arrows already printed do not
+  move when the leg changes.
+* `InpMaxBars` bounds the replay. On a reload the state machine restarts at
+  `rates_total − InpMaxBars`, so the handful of bars at the very start of that window can differ
+  from a run with more history behind them. Everything past the first two confirmed swings is
+  identical. Set `InpMaxBars = 0` if you need the full history replayed identically.
 
 ### 2.6b Signal visuals
 
@@ -144,9 +166,9 @@ It arms when price is within `InpApproachAtr` × ATR of the level **and on the c
 for the active leg, and clears itself once price moves away. Since the Fibonacci layer is hidden
 until the touch, this arrow is your pre-touch cue.
 
-**ADRENALINE trend banner.** When the impulse leg flips direction, a banner appears centred near the
-top of the chart: **ADRENALINE ON** in neon green when the trend turns up, **ADRENALINE OFF** in red
-when it turns down. It flashes strongly for `InpAdrenalineFlashSec` seconds after the flip, then
+**ADRENALINE trend banner.** When the impulse leg flips direction, a banner appears in the
+**bottom-right corner** of the chart (`InpAdrenalineCorner`, so it can be moved): **ADRENALINE ON**
+in neon green when the trend turns up, **ADRENALINE OFF** in red when it turns down. It flashes strongly for `InpAdrenalineFlashSec` seconds after the flip, then
 settles into a steady display of the current state. The flip is also printed to the Experts log.
 
 ### 2.7 EA integration — exported buffers
@@ -264,7 +286,9 @@ bundled `AdrenalineB1000EA.mq5` reads exactly these.
 |---|---|---|
 | `InpShowAdrenaline` | true | Show the ADRENALINE ON / OFF banner on a trend flip. |
 | `InpAdrenalineFlashSec` | 8 | Seconds of strong flashing after the flip, before it settles. |
-| `InpAdrenalineY` | 60 | Banner distance from the top of the chart, in pixels. |
+| `InpAdrenalineCorner` | Bottom Right | Which corner the banner sits in. |
+| `InpAdrenalineX` | 14 | Banner offset from that corner, horizontally, in pixels. |
+| `InpAdrenalineY` | 30 | Banner offset from that corner, vertically, in pixels. |
 
 ### 8–9. Dashboard and alerts
 | Input | Default | Description |
