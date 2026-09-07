@@ -46,3 +46,14 @@ the server or the composer.
   rather than decoration: the platform scores a later stop-out *after* a
   break-even move as a scratch rather than a loss, so the published win rate
   stays honest.
+
+---
+
+## Also in this folder
+
+`Indicators/NeuroGannZones/` — a standalone MT5 indicator that draws W.D. Gann
+geometry (fan, Square of Nine, eighths, time cycles) as zones and up/down lines,
+scored by a mathematical model set and a small neural network. It is independent
+of the bridge above: it publishes nothing and needs no API key. See
+[its README](Indicators/NeuroGannZones/README.md) for installation, the input
+reference and the buffer map for EA consumption.
