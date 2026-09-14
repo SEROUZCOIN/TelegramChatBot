@@ -194,13 +194,60 @@ and `ρ = B/A`:
 
 | Condition | Verdict |
 |---|---|
-| `ρ >= 0.85` | **Reversal** in leg `B`'s direction — a counter-leg that matches the impulse it answers has taken control |
-| `ρ <= 0.55` | **Continuation** of leg `A`'s direction — the counter-leg was only a pullback |
+| `ρ >= 1.10` | **Reversal** in leg `B`'s direction — the counter-leg outscored the impulse it answered |
+| `ρ <= 0.75` | **Continuation** of leg `A`'s direction — the counter-leg was only a pullback |
 | otherwise | Neutral |
 | `CD < 45` | forced Neutral regardless — both legs too weak to read |
 
-`RP` is the pivot that terminated leg `B`: the reference level the verdict is
-anchored to. The pivot that opened leg `B` is the invalidation level.
+### Why these thresholds and not the source material's
+
+The source material implies `ρ >= 0.85` for reversal and `ρ <= 0.55` for
+continuation. Those do not survive contact with this scale. Measured over 371
+legs of synthetic M15 data, `ρ` is tightly centred on parity:
+
+| min | p10 | p25 | median | p75 | p90 | max |
+|---|---|---|---|---|---|---|
+| 0.00 | 0.68 | 0.86 | **1.00** | 1.13 | 1.45 | 3.77 |
+
+Consecutive legs score similarly because `CS`, `SP` and `NP` are all bounded
+and normalised. A `0.85` floor therefore labels most of the chart a reversal:
+
+| thresholds | reversals | continuations | neutral |
+|---|---|---|---|
+| 0.85 / 0.55 (source) | **77%** | 4% | 19% |
+| 1.00 / 0.70 | 50% | 11% | 39% |
+| **1.10 / 0.75 (adopted)** | **28%** | **14%** | **57%** |
+| 1.20 / 0.80 | 19% | 19% | 62% |
+
+At the source's thresholds the model flips direction on nearly every swing,
+which is not a signal. Recentring on parity — the counter-leg must *outscore*
+the impulse, not merely approach it — makes the verdict selective while
+keeping the one labelled example correct: the reference pair scores `ρ = 1.133`
+under this model (§4), still a reversal at `1.10`.
+
+This is a genuine departure from the source, not a transcription. It is forced
+by the sub-score definitions in §4: a different `CS/SP/NP` would put `ρ` on a
+different scale and would need its own thresholds.
+
+### `RP`, levels and invalidation
+
+`RP` is the pivot that terminated leg `B`. Which level invalidates the verdict
+depends on the verdict, not on the trade direction:
+
+| Verdict | Invalidated by |
+|---|---|
+| Reversal | the leg's **origin** — price returning there means the counter-leg never took control |
+| Continuation | the **pivot** the leg just failed at |
+
+Using the pivot for both is wrong and silently so. Confirmation only arrives
+*after* price has retraced away from the pivot, so a long's stop taken from
+the pivot lands **above** its own entry. Measured on 267 synthetic signals
+before the rule was corrected, **266 had the stop on the wrong side of entry**
+and every one resolved as an immediate loss. After the fix: 0 of 106.
+
+A stop is additionally floored at `0.75 ATR` from entry. A structurally
+correct stop can still sit inside the noise when the pivot is near the
+confirmation bar; the floor only ever widens it, never tightens it.
 
 **Reset.** Each confirmed pivot rolls the window (`A <- B`), zeroes the
 accumulator and starts a new leg. Nothing carries across a transition.
@@ -209,12 +256,19 @@ accumulator and starts a new leg. Nothing carries across a transition.
 
 - **A leg is scored only on confirmation.** The terminating swing is confirmed
   by an ATR-scaled retracement, which lags the actual pivot. This is inherent
-  to swing scoring, not an implementation shortcut. Values are never revised
-  once written, so the plot does not repaint.
+  to swing scoring, not an implementation shortcut. Every bar is fed to the
+  engine exactly once and only after it closes, so values are never revised
+  and the plot does not repaint.
+- **No edge has been demonstrated.** The synthetic runs above verify
+  *mechanics* — that stops land on the correct side, that verdicts are
+  selective, that `CSI` and `CD` stay bounded. They are generated data with
+  trend regimes built in, so the hit rate they produce says nothing about live
+  performance and must not be read as one.
 - **Calibrated on one labelled example.** The reference material contains a
-  single leg pair with a known outcome. The defaults are principled rather than
-  fitted, and they have not been validated on a sample large enough to claim an
-  edge. Run the Strategy Tester across several hundred legs before trading it.
-- **Gaps 1 and 2 are filled with original definitions.** If the original `Vi`
-  table and `CS/SP/NP` rules surface, they belong in §3 and §4 and the
-  calibration in §4 must be re-run.
+  single leg pair with a known outcome. The defaults are principled rather
+  than fitted. Run the Strategy Tester across several hundred legs on real
+  data before trading it.
+- **Gaps 1 and 2 are filled with original definitions**, and §6's thresholds
+  are a third departure. If the original `Vi` table and `CS/SP/NP` rules
+  surface, they belong in §3 and §4, and both the §4 calibration and the §6
+  thresholds must be re-derived.

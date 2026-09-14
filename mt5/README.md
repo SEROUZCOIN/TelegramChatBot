@@ -87,7 +87,7 @@ labelled `CNS | CSI`.
 | `InpScore*` / `InpBody*` | The per-candle score table. Replaceable wholesale without touching code. |
 | `InpSpReference` | Efficiency ratio that scores `SP = 100`. Below ~0.5 this saturates and `SP` stops discriminating. |
 | `InpWeightCS/SP/NP` | The `0.5 / 0.3 / 0.2` collapse. Should sum to 1; the indicator warns if not. |
-| `InpReversalRatio` | `CSI(new)/CSI(prev)` at or above this reads as a reversal. |
+| `InpReversalRatio` | `CSI(new)/CSI(prev)` at or above this reads as a reversal. Centred on parity at `1.10`, not on the source method's `0.85` — see `docs/CSI-MODEL.md` §6 for the measured distribution that forced it. |
 | `InpContinuationRatio` | At or below this, the counter-leg was only a pullback. |
 | `InpMinCD` | Below this fused score, no verdict is issued at all. |
 
@@ -102,3 +102,55 @@ labelled `CNS | CSI`.
   through history on attach.
 - **Buffers 2–4 carry `CNS`, the verdict code, and the leg direction** for
   `iCustom` consumers, so an EA can read the verdict without re-deriving it.
+
+---
+
+# CSI-Omega Pro
+
+`CSI_Omega_Pro.mq5` is the trading surface of the same model: entry arrows,
+structural levels, multi-timeframe confluence and a dashboard. The scoring
+lives in `Include/CSIOmega.mqh` and is shared with `CSI_Omega.mq5`, so the
+formula cannot drift between the two.
+
+## Setup
+
+Copy `Include/CSIOmega.mqh` to `MQL5/Include/` and `CSI_Omega_Pro.mq5` to
+`MQL5/Indicators/`, then compile the indicator in MetaEditor (F7). The include
+must be in place first or the compile fails on the `#include` line.
+
+## What it draws
+
+| | |
+|---|---|
+| Arrows | One per actionable verdict, at the confirmation bar |
+| Entry / stop / TP1–TP3 | Horizontal lines for the most recent signal |
+| Leg labels | `CNS \| CSI` at each scored pivot |
+| Dashboard | Confluence, the three sub-scores as gauges, `CSI`/`CD`, the verdict, the last signal, and a measured hit rate |
+
+## Inputs worth knowing
+
+| Input | Meaning |
+|---|---|
+| `InpMinCSI` | Floor on the new leg's own strength before it may signal. The main selectivity dial. |
+| `InpUseMtf`, `InpMtf1..3` | Run the whole model on up to three higher timeframes. Each is scanned only when that timeframe prints a new bar. |
+| `InpRequireMtf`, `InpMtfMinAgree` | Block signals that lack higher-timeframe agreement. Off by default — turn it on to trade less and later. |
+| `InpSlAtrBuffer` | How far beyond the structural level the stop sits. |
+| `InpMinStopAtr` | Floor on risk. Only ever widens a stop, never tightens it. |
+| `InpTp1R`–`InpTp3R` | Targets as multiples of the measured risk. |
+
+## Behaviour worth knowing
+
+- **The stop is structural, and which structure depends on the verdict.** A
+  reversal is invalidated by the leg's origin; a continuation by the pivot the
+  leg just failed at. Getting this wrong puts a long's stop above its entry —
+  see `docs/CSI-MODEL.md` §6.
+- **A signal whose risk cannot be stated is not drawn.** If the geometry puts
+  the stop on the wrong side of entry, the bar is skipped rather than guessed.
+- **The hit rate on the panel is measured, not assumed.** It counts the
+  indicator's own confirmed signals over the calculated history, resolving each
+  at whichever of TP1 or the stop is touched first, and scores a bar that spans
+  both as a loss.
+- **Every bar is processed exactly once, after it closes.** The forming bar is
+  never fed to the engine, so arrows never move.
+- **No edge is claimed.** The defaults are principled, not fitted, and have
+  been validated for mechanics only. Backtest before trading.
