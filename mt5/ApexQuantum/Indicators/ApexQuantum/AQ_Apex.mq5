@@ -171,6 +171,14 @@ struct AQAppState
    bool              engineOk;        // all sub-engines produced data
    ulong             lastAlertMs;     // monotonic alert throttle
    int               liveScore;
+   //--- validated working copies of the numeric inputs. Inputs are runtime
+   //--- constants and an optimiser pass (or a hand-edited .set) can hand us a
+   //--- zero or a negative, so nothing downstream ever reads the raw Inp* value.
+   int               lookback;
+   int               fastLen, slowLen;
+   int               atrPeriod;
+   int               minScore;
+   ulong             alertMs;
   };
 AQAppState g_st;
 
@@ -187,10 +195,12 @@ double          g_mtf1[], g_mtf2[];
 //+------------------------------------------------------------------+
 //| CORE — ATR (Wilder), incremental                                 |
 //+------------------------------------------------------------------+
-void AQ_CalcAtr(const int total, const int start, const int period,
+void AQ_CalcAtr(const int total, const int start, const int periodIn,
                 const double &high[], const double &low[], const double &close[], double &atr[])
   {
-   for(int i = start; i < total; i++)
+   int period = (periodIn < 1) ? 1 : periodIn;
+   int bars   = (int)MathMin(total, ArraySize(high));
+   for(int i = (start < 0 ? 0 : start); i < bars; i++)
      {
       if(i == 0) { atr[0] = high[0] - low[0]; continue; }
       double tr = MathMax(high[i] - low[i],
@@ -215,7 +225,7 @@ bool AQ_BuildMtfTrend(const ENUM_TIMEFRAMES tf, const int bars, double &trendOut
    double fast[], slow[], up[], dn[], col[];
    ArrayResize(fast, n); ArrayResize(slow, n); ArrayResize(up, n);
    ArrayResize(dn,   n); ArrayResize(col,  n); ArrayResize(trendOut, n);
-   AQ_CalcTrendLines(n, 0, InpFastLen, InpSlowLen, h, l, c, fast, slow, trendOut, up, dn, col);
+   AQ_CalcTrendLines(n, 0, g_st.fastLen, g_st.slowLen, h, l, c, fast, slow, trendOut, up, dn, col);
    return(true);
   }
 
@@ -289,7 +299,7 @@ void AQ_EvaluateSignals(const int total, const datetime &time[], const double &o
    if(last < 10) return;
 
    bool firstPass = (g_st.lastEvalBar < 0);
-   int  from      = firstPass ? (int)MathMax(10, total - 1 - InpLookback) : g_st.lastEvalBar + 1;
+   int  from      = firstPass ? (int)MathMax(10, total - 1 - g_st.lookback) : g_st.lastEvalBar + 1;
    if(from > last) return;
 
    for(int i = from; i <= last; i++)
@@ -341,7 +351,7 @@ void AQ_HeavyPass(const int total, const datetime &time[], const double &high[],
    //--- higher timeframe rails, rebuilt once per bar
    if(InpUseMtf)
      {
-      long span  = (long)InpLookback * (long)PeriodSeconds();
+      long span  = (long)g_st.lookback * (long)PeriodSeconds();
       long need1 = span / (long)MathMax(1, PeriodSeconds(g_tf1));
       long need2 = span / (long)MathMax(1, PeriodSeconds(g_tf2));
       AQ_BuildMtfTrend(g_tf1, (int)AQ_Clamp(need1, (long)120, (long)5000), g_mtf1);
@@ -421,7 +431,7 @@ void AQ_PublishState(const int total, const datetime &time[], const double &clos
    d.symbol      = _Symbol;
    d.tf          = AQ_TfName((ENUM_TIMEFRAMES)Period());
    d.score       = g_st.liveScore;
-   d.bias        = (d.score >= InpMinScore) ? 1 : (d.score <= -InpMinScore) ? -1 : 0;
+   d.bias        = (d.score >= g_st.minScore) ? 1 : (d.score <= -g_st.minScore) ? -1 : 0;
    d.trend       = (int)BufTrend[i];
    d.structDir   = g_struct.Direction();
    d.eventName   = g_struct.EventName(g_struct.LastEvent());
@@ -456,7 +466,7 @@ void AQ_PublishState(const int total, const datetime &time[], const double &clos
 void AQ_Notify(const string text)
   {
    ulong now = GetTickCount64();
-   if(g_st.lastAlertMs != 0 && now - g_st.lastAlertMs < (ulong)InpAlertSeconds * 1000) return;
+   if(g_st.lastAlertMs != 0 && now - g_st.lastAlertMs < g_st.alertMs) return;
    g_st.lastAlertMs = now;
 
    if(InpAlertPopup) Alert(text);
@@ -535,9 +545,25 @@ int OnInit()
    PlotIndexSetInteger(5, PLOT_LINE_COLOR, 0, AQ_CLR_GOLD);
 
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
+
+   //--- validate every numeric input once; everything downstream reads these
+   g_st.lookback  = AQ_Clamp(InpLookback,     60, 20000);
+   g_st.fastLen   = AQ_Clamp(InpFastLen,       1,  1000);
+   g_st.slowLen   = AQ_Clamp(InpSlowLen,       1,  2000);
+   g_st.atrPeriod = AQ_Clamp(InpAtrPeriod,     1,  1000);
+   g_st.minScore  = AQ_Clamp(InpMinScore,      1,   100);
+   g_st.alertMs   = (ulong)AQ_Clamp(InpAlertSeconds, 0, 86400) * 1000;
+   if(g_st.slowLen <= g_st.fastLen) g_st.slowLen = g_st.fastLen + 1;   // the rails must differ
+   if(InpLookback != g_st.lookback || InpFastLen != g_st.fastLen ||
+      InpSlowLen  != g_st.slowLen  || InpAtrPeriod != g_st.atrPeriod ||
+      InpMinScore != g_st.minScore)
+      PrintFormat("APEX QUANTUM: inputs clamped to lookback=%d fast=%d slow=%d atr=%d score=%d",
+                  g_st.lookback, g_st.fastLen, g_st.slowLen, g_st.atrPeriod, g_st.minScore);
+
+   //--- the label reports what the engine actually runs with, not what was typed
    IndicatorSetString(INDICATOR_SHORTNAME,
                       StringFormat("APEX QUANTUM (%d,%.1f/%.1f,%d)",
-                                   InpLookback, InpFractalFast, InpFractalSlow, InpMinScore));
+                                   g_st.lookback, InpFractalFast, InpFractalSlow, g_st.minScore));
 
    //--- higher timeframes: PERIOD_CURRENT means "pick them for me"
    g_tf1 = (InpMtf1 == PERIOD_CURRENT) ? AQ_HigherTf((ENUM_TIMEFRAMES)Period(), 1) : InpMtf1;
@@ -545,41 +571,41 @@ int OnInit()
 
    //--- sub-engines
    AQZoneCfg zc;
-   zc.lookback   = InpLookback;
-   zc.fastFactor = InpFractalFast;
-   zc.slowFactor = InpFractalSlow;
-   zc.fuzz       = InpZoneFuzz;
+   zc.lookback   = g_st.lookback;
+   zc.fastFactor = AQ_Clamp(InpFractalFast, 0.5, 50.0);
+   zc.slowFactor = AQ_Clamp(InpFractalSlow, 0.5, 100.0);
+   zc.fuzz       = AQ_Clamp(InpZoneFuzz,   0.05, 10.0);
    zc.merge      = InpZoneMerge;
    zc.extend     = InpZoneExtend;
    zc.showWeak   = InpZoneWeak;
    zc.showFresh  = InpZoneFresh;
    zc.showBroken = InpZoneBroken;
-   zc.maxDraw    = InpZoneMax;
+   zc.maxDraw    = AQ_Clamp(InpZoneMax,   1, 200);
    zc.solid      = InpZoneSolid;
-   zc.lineWidth  = InpZoneWidth;
+   zc.lineWidth  = AQ_Clamp(InpZoneWidth, 1, 5);
    zc.style      = InpZoneStyle;
    zc.labels     = InpZoneLabels;
    g_zones.Configure(zc);
 
    AQStructCfg sc;
-   sc.lookback   = InpLookback;
-   sc.sarStep    = InpSarStep;
-   sc.sarMax     = InpSarMax;
+   sc.lookback   = g_st.lookback;
+   sc.sarStep    = AQ_Clamp(InpSarStep, 0.001, 0.5);
+   sc.sarMax     = AQ_Clamp(InpSarMax,  0.01,  1.0);
    sc.showFib    = InpShowFib;
-   sc.maxFvg     = InpMaxFvg;
-   sc.maxBreaks  = InpMaxBreaks;
+   sc.maxFvg     = AQ_Clamp(InpMaxFvg,    0, 100);
+   sc.maxBreaks  = AQ_Clamp(InpMaxBreaks, 0, 100);
    if(!g_struct.Init(sc)) return(INIT_FAILED);
 
    AQChanCfg cc;
-   cc.lookback    = InpLookback;
-   cc.fractalBars = InpChanFractal;
-   cc.width       = InpChanWidth;
+   cc.lookback    = g_st.lookback;
+   cc.fractalBars = AQ_Clamp(InpChanFractal, 0, 500);
+   cc.width       = AQ_Clamp(InpChanWidth,   1, 5);
    g_chan.Configure(cc);
 
    AQSigCfg gc;
    gc.mode          = InpSigMode;
-   gc.minScore      = InpMinScore;
-   gc.cooldownBars  = InpCooldownBars;
+   gc.minScore      = g_st.minScore;
+   gc.cooldownBars  = AQ_Clamp(InpCooldownBars, 0, 5000);
    gc.confirmCandle = InpConfirmCandle;
    g_sig.Configure(gc);
    g_sig.Reset();
@@ -596,7 +622,7 @@ int OnInit()
    if(InpShowPanel && !MQLInfoInteger(MQL_OPTIMIZATION)) g_dash.Create();
    AQ_ApplyPlotVisibility();
 
-   //--- state
+   //--- remaining state
    g_st.lastBar        = 0;
    g_st.lastEvalBar    = -1;
    g_st.lastDir        = 0;
@@ -667,8 +693,8 @@ int OnCalculate(const int rates_total,
       start = prev_calculated - 1;                           // re-touch the forming bar
 
    //--- 1. per-bar series (cheap, every tick)
-   AQ_CalcAtr(rates_total, start, InpAtrPeriod, high, low, close, BufAtr);
-   AQ_CalcTrendLines(rates_total, start, InpFastLen, InpSlowLen, high, low, close,
+   AQ_CalcAtr(rates_total, start, g_st.atrPeriod, high, low, close, BufAtr);
+   AQ_CalcTrendLines(rates_total, start, g_st.fastLen, g_st.slowLen, high, low, close,
                      BufFast, BufSlow, BufTrend, BufRailUp, BufRailDn, BufFastClr);
 
    //--- 2. heavy pass, only on a new bar (or when forced)

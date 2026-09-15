@@ -157,8 +157,22 @@ struct AQPosFlag
    double            risk0;           // stop distance as first seen — R never drifts
   };
 
+//--- validated working copies of the numeric inputs. Inputs are runtime
+//--- constants and an optimiser pass can hand us a zero or a negative, so the
+//--- engine and the execution layer only ever read these.
+struct AQEaCfg
+  {
+   int               lookback, fastLen, slowLen, atrPeriod;
+   int               minScore, cooldown, slippage, maxSpread;
+   int               slPoints, tpPoints;
+   double            riskPct, fixedLot;
+   double            slAtr, slBufAtr, tpRR, tpAtr;
+   double            beTrigR, beOffAtr, partTrigR, partPct, trailStartR, trailAtr;
+  };
+
 struct AQEaState
   {
+   AQEaCfg           cfg;
    AQSymbol          sym[];
    int               symCount;
    AQPosFlag         pos[];
@@ -176,6 +190,9 @@ CTrade g_trade;
 //+------------------------------------------------------------------+
 //| CORE — helpers                                                   |
 //+------------------------------------------------------------------+
+template<typename T>
+T AQClamp(T v, T lo, T hi) { return(v < lo ? lo : (v > hi ? hi : v)); }
+
 void AQLog(const string text)
   {
    if(InpVerboseLog) Print(AQ_LOG, text);
@@ -210,14 +227,14 @@ double MinStopDistance(const string sym)
 
 double LotsForRisk(const string sym, const double slDistance)
   {
-   if(InpLotMode == AQEA_LOT_FIXED) return(NormalizeVolume(sym, InpFixedLot));
+   if(InpLotMode == AQEA_LOT_FIXED) return(NormalizeVolume(sym, g_ea.cfg.fixedLot));
 
    double tickSize  = SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_SIZE);
    double tickValue = SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_VALUE_LOSS);
    if(tickValue <= 0.0) tickValue = SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_VALUE);
    if(tickSize <= 0.0 || tickValue <= 0.0 || slDistance <= 0.0) return(0.0);
 
-   double riskMoney  = AccountInfoDouble(ACCOUNT_EQUITY) * InpRiskPct / 100.0;
+   double riskMoney  = AccountInfoDouble(ACCOUNT_EQUITY) * g_ea.cfg.riskPct / 100.0;
    double lossPerLot = (slDistance / tickSize) * tickValue;
    if(lossPerLot <= 0.0) return(0.0);
    return(NormalizeVolume(sym, riskMoney / lossPerLot));
@@ -452,15 +469,15 @@ bool OpenTrade(const string sym, const int dir, const double atr,
    if(price <= 0.0 || point <= 0.0 || atr <= 0.0) return(false);
 
    //--- stop distance
-   double slDist = atr * InpSlAtr;
-   if(InpSlMode == AQEA_SL_FIXED) slDist = InpSlPoints * point;
+   double slDist = atr * g_ea.cfg.slAtr;
+   if(InpSlMode == AQEA_SL_FIXED) slDist = g_ea.cfg.slPoints * point;
    else if(InpSlMode == AQEA_SL_ZONE)
      {
       double edge = isBuy ? demBot : supTop;
       if(edge > 0.0)
         {
          double d = isBuy ? (price - edge) : (edge - price);
-         d += atr * InpSlBufAtr;                             // breathing room behind the zone
+         d += atr * g_ea.cfg.slBufAtr;                       // breathing room behind the zone
          if(d > 0.0) slDist = d;
         }
      }
@@ -470,14 +487,14 @@ bool OpenTrade(const string sym, const int dir, const double atr,
    double tpDist = 0.0;
    switch(InpTpMode)
      {
-      case AQEA_TP_RR:    tpDist = slDist * InpTpRR;       break;
-      case AQEA_TP_ATR:   tpDist = atr * InpTpAtr;         break;
-      case AQEA_TP_FIXED: tpDist = InpTpPoints * point;    break;
+      case AQEA_TP_RR:    tpDist = slDist * g_ea.cfg.tpRR;    break;
+      case AQEA_TP_ATR:   tpDist = atr * g_ea.cfg.tpAtr;      break;
+      case AQEA_TP_FIXED: tpDist = g_ea.cfg.tpPoints * point; break;
       case AQEA_TP_NONE:  tpDist = 0.0;                    break;
       case AQEA_TP_ZONE:
         {
          double target = isBuy ? supBot : demTop;
-         tpDist = (target > 0.0) ? MathAbs(target - price) : slDist * InpTpRR;
+         tpDist = (target > 0.0) ? MathAbs(target - price) : slDist * g_ea.cfg.tpRR;
          break;
         }
      }
@@ -566,7 +583,7 @@ void ManagePositions(void)
       double rNow = move / r0;
 
       //--- live ATR from the engine; the stop distance is only the fallback
-      double atr = r0 / MathMax(InpSlAtr, 0.1);
+      double atr = r0 / g_ea.cfg.slAtr;                      // cfg.slAtr is clamped > 0
       int    hs  = HandleOf(sym);
       if(hs != INVALID_HANDLE)
         {
@@ -576,9 +593,9 @@ void ManagePositions(void)
       double minDist = MinStopDistance(sym);
 
       //--- 1. partial close
-      if(InpPartEnable && !g_ea.pos[idx].partDone && rNow >= InpPartTriggerR)
+      if(InpPartEnable && !g_ea.pos[idx].partDone && rNow >= g_ea.cfg.partTrigR)
         {
-         double part = NormalizeVolume(sym, vol * InpPartPercent / 100.0);
+         double part = NormalizeVolume(sym, vol * g_ea.cfg.partPct / 100.0);
          double rest = vol - part;
          if(part > 0.0 && rest >= SymbolInfoDouble(sym, SYMBOL_VOLUME_MIN))
            {
@@ -594,9 +611,9 @@ void ManagePositions(void)
         }
 
       //--- 2. break even
-      if(InpBeEnable && !g_ea.pos[idx].beDone && rNow >= InpBeTriggerR)
+      if(InpBeEnable && !g_ea.pos[idx].beDone && rNow >= g_ea.cfg.beTrigR)
         {
-         double off    = atr * InpBeOffsetAtr;
+         double off    = atr * g_ea.cfg.beOffAtr;
          double target = NormalizePrice(sym, isBuy ? open + off : open - off);
          bool   better = isBuy ? (target > sl + point) : (target < sl - point);
          bool   legal  = isBuy ? (price - target > minDist) : (target - price > minDist);
@@ -609,9 +626,9 @@ void ManagePositions(void)
         }
 
       //--- 3. trailing
-      if(InpTrailEnable && rNow >= InpTrailStartR)
+      if(InpTrailEnable && rNow >= g_ea.cfg.trailStartR)
         {
-         double dist   = atr * InpTrailAtr;
+         double dist   = atr * g_ea.cfg.trailAtr;
          double target = NormalizePrice(sym, isBuy ? price - dist : price + dist);
          bool   better = isBuy ? (target > sl + point) : (target < sl - point);
          bool   legal  = isBuy ? (price - target > minDist) : (target - price > minDist);
@@ -668,14 +685,14 @@ void ProcessSymbol(const int s)
    //--- filters
    if(!RiskGuardOk())                                          return;
    if(!DayAllowed() || !SessionAllowed() || BlackoutNow())      return;
-   if(SymbolInfoInteger(sym, SYMBOL_SPREAD) > InpMaxSpreadPts)
+   if(SymbolInfoInteger(sym, SYMBOL_SPREAD) > g_ea.cfg.maxSpread)
      {
       AQLog(sym + ": spread filter blocked the entry");
       return;
      }
    if(CountPositions("") >= InpMaxTrades)                       return;
    if(CountPositions(sym) >= InpMaxPerSymbol)                   return;
-   if(MathAbs(score) < InpMinScore)                             return;
+   if(MathAbs(score) < g_ea.cfg.minScore)                       return;
 
    double demTop = 0.0, demBot = 0.0, supTop = 0.0, supBot = 0.0;
    ReadBuffer(h, AQ_BUF_DEM_TOP, 0, demTop);                 // zero simply means "none in range"
@@ -691,6 +708,31 @@ void ProcessSymbol(const int s)
 //+------------------------------------------------------------------+
 int OnInit()
   {
+   //--- validate every numeric input once, before anything reads one
+   g_ea.cfg.lookback    = AQClamp(InpLookback,     60, 20000);
+   g_ea.cfg.fastLen     = AQClamp(InpFastLen,       1,  1000);
+   g_ea.cfg.slowLen     = AQClamp(InpSlowLen,       1,  2000);
+   if(g_ea.cfg.slowLen <= g_ea.cfg.fastLen) g_ea.cfg.slowLen = g_ea.cfg.fastLen + 1;
+   g_ea.cfg.atrPeriod   = AQClamp(InpAtrPeriod,     1,  1000);
+   g_ea.cfg.minScore    = AQClamp(InpMinScore,      1,   100);
+   g_ea.cfg.cooldown    = AQClamp(InpCooldownBars,  0,  5000);
+   g_ea.cfg.slippage    = AQClamp(InpSlippage,      0, 10000);
+   g_ea.cfg.maxSpread   = AQClamp(InpMaxSpreadPts,  1, 100000);
+   g_ea.cfg.slPoints    = AQClamp(InpSlPoints,      1, 1000000);
+   g_ea.cfg.tpPoints    = AQClamp(InpTpPoints,      1, 1000000);
+   g_ea.cfg.riskPct     = AQClamp(InpRiskPct,    0.01,  50.0);
+   g_ea.cfg.fixedLot    = MathMax(InpFixedLot,   0.0);        // 0 is caught by the volume check
+   g_ea.cfg.slAtr       = AQClamp(InpSlAtr,       0.1, 100.0); // divisor: must stay > 0
+   g_ea.cfg.slBufAtr    = AQClamp(InpSlBufAtr,    0.0,  10.0);
+   g_ea.cfg.tpRR        = AQClamp(InpTpRR,       0.1,  100.0);
+   g_ea.cfg.tpAtr       = AQClamp(InpTpAtr,      0.1,  100.0);
+   g_ea.cfg.beTrigR     = AQClamp(InpBeTriggerR, 0.1,  100.0);
+   g_ea.cfg.beOffAtr    = AQClamp(InpBeOffsetAtr, 0.0,  10.0);
+   g_ea.cfg.partTrigR   = AQClamp(InpPartTriggerR, 0.1, 100.0);
+   g_ea.cfg.partPct     = AQClamp(InpPartPercent,  1.0,  99.0);
+   g_ea.cfg.trailStartR = AQClamp(InpTrailStartR,  0.1, 100.0);
+   g_ea.cfg.trailAtr    = AQClamp(InpTrailAtr,    0.1, 100.0);
+
    //--- symbol list
    string list = InpSymbols;
    StringTrimLeft(list); StringTrimRight(list);
@@ -722,11 +764,11 @@ int OnInit()
         }
 
       int h = iCustom(s, tf, InpIndPath,
-                      InpLookback, InpFractalFast, InpFractalSlow, InpZoneFuzz,
-                      InpZoneMerge, InpZoneExtend, InpFastLen, InpSlowLen,
-                      InpSarStep, InpSarMax, InpAtrPeriod, InpUseMtf,
-                      InpMtf1, InpMtf2, InpSigMode, InpMinScore,
-                      InpCooldownBars, InpConfirmCandle);
+                      g_ea.cfg.lookback, InpFractalFast, InpFractalSlow, InpZoneFuzz,
+                      InpZoneMerge, InpZoneExtend, g_ea.cfg.fastLen, g_ea.cfg.slowLen,
+                      InpSarStep, InpSarMax, g_ea.cfg.atrPeriod, InpUseMtf,
+                      InpMtf1, InpMtf2, InpSigMode, g_ea.cfg.minScore,
+                      g_ea.cfg.cooldown, InpConfirmCandle);
       if(h == INVALID_HANDLE)
         {
          PrintFormat("%siCustom failed for %s (path '%s') err=%d",
@@ -748,7 +790,7 @@ int OnInit()
      }
 
    g_trade.SetExpertMagicNumber(InpMagic);
-   g_trade.SetDeviationInPoints(InpSlippage);
+   g_trade.SetDeviationInPoints(g_ea.cfg.slippage);
    g_trade.SetTypeFillingBySymbol(_Symbol);
    g_trade.LogLevel(LOG_LEVEL_ERRORS);
 

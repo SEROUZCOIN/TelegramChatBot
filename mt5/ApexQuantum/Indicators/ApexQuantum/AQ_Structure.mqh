@@ -27,12 +27,21 @@
 //| never disagree.                                                  |
 //+------------------------------------------------------------------+
 void AQ_CalcTrendLines(const int rates_total, const int start,
-                       const int fastLen, const int slowLen,
+                       const int fastLenIn, const int slowLenIn,
                        const double &high[], const double &low[], const double &close[],
                        double &fastLine[], double &slowLine[], double &trend[],
                        double &railUp[], double &railDn[], double &fastCol[])
   {
-   for(int i = start; i < rates_total; i++)
+   //--- Never trust the caller's numbers. A zero or negative window (an optimiser
+   //--- pass that starts an int input at 0, a hand-edited .set) makes the window
+   //--- search below return -1, and indexing that is an out-of-range read.
+   int fastLen = (fastLenIn < 1) ? 1 : fastLenIn;
+   int slowLen = (slowLenIn < 1) ? 1 : slowLenIn;
+   int total   = (int)MathMin(rates_total, ArraySize(high));
+   int from    = (start < 0) ? 0 : start;
+   if(total <= 0 || ArraySize(low) < total || ArraySize(close) < total) return;
+
+   for(int i = from; i < total; i++)
      {
       if(i == 0)
         {
@@ -48,10 +57,27 @@ void AQ_CalcTrendLines(const int rates_total, const int start,
       int cf = i - sf + 1;
       int cs = i - ss + 1;
 
-      double hiF = high[ArrayMaximum(high, sf, cf)];
-      double loF = low [ArrayMinimum(low,  sf, cf)];
-      double hiS = high[ArrayMaximum(high, ss, cs)];
-      double loS = low [ArrayMinimum(low,  ss, cs)];
+      int mxF = ArrayMaximum(high, sf, cf);
+      int mnF = ArrayMinimum(low,  sf, cf);
+      int mxS = ArrayMaximum(high, ss, cs);
+      int mnS = ArrayMinimum(low,  ss, cs);
+
+      //--- a failed window search carries the rails forward; it never indexes -1
+      if(mxF < 0 || mnF < 0 || mxS < 0 || mnS < 0)
+        {
+         fastLine[i] = fastLine[i - 1];
+         slowLine[i] = slowLine[i - 1];
+         trend[i]    = trend[i - 1];
+         railUp[i]   = (trend[i] > 0.0) ? slowLine[i] : EMPTY_VALUE;
+         railDn[i]   = (trend[i] < 0.0) ? slowLine[i] : EMPTY_VALUE;
+         fastCol[i]  = (trend[i] > 0.0) ? 0.0 : 1.0;
+         continue;
+        }
+
+      double hiF = high[mxF];
+      double loF = low [mnF];
+      double hiS = high[mxS];
+      double loS = low [mnS];
 
       //--- each rail trails the opposite extreme of its window while price holds above it
       slowLine[i] = (close[i] > slowLine[i - 1]) ? loS : hiS;
