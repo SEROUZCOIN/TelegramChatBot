@@ -195,9 +195,9 @@ void CAQDashboard::BuildHeader(int &y)
 
    AQ_UiPanel("DHBAR", m_x, y, m_w, hdrH, AQ_CLR_HEADER, AQ_CLR_BORDER, CORNER_LEFT_UPPER);
 
-   m_dotX = m_x + pad;
-   m_dotY = y + (hdrH - dot) / 2;
-   AQ_UiPanel("DHDOT", m_dotX, m_dotY, dot, dot, AQ_CLR_NEON, AQ_CLR_NEON, CORNER_LEFT_UPPER);
+   int dotX = m_x + pad;                          // the pulse only recolours, never moves
+   int dotY = y + (hdrH - dot) / 2;
+   AQ_UiPanel("DHDOT", dotX, dotY, dot, dot, AQ_CLR_NEON, AQ_CLR_NEON, CORNER_LEFT_UPPER);
 
    AQ_UiLabel("DHTITLE", m_x + pad + dot + AQ_Dpi(7), y + AQ_Dpi(7), "APEX QUANTUM",
               AQ_CLR_NEON, AQ_FS_TITLE, AQ_FONT, ANCHOR_LEFT_UPPER, CORNER_LEFT_UPPER);
