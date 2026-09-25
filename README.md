@@ -9,7 +9,7 @@ admin control panel, and a Telegram subscriber bot.
 | `apps/api` | NestJS + Fastify, Prisma, PostgreSQL, Redis |
 | `apps/admin` | Next.js 15 App Router |
 | `packages/shared` | Zod contracts, signal state machine, pip & R:R math |
-| `mt5/` | MetaTrader 5 Expert Advisor bridge |
+| `mt5/` | MetaTrader 5: `SignalBridge.mq5` (publishes trades as signals) and [`Adrenaline/`](mt5/Adrenaline/README.md) (Adrenaline V3 spike EA for Weltrade MaxGainX 2000) |
 
 ## Plans
 
