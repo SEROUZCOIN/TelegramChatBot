@@ -30,6 +30,12 @@
 //                       closed and moved to break-even.
 //   5. Protection     - basket stop, stop-adding level, daily loss/profit
 //                       limits, free-margin reserve, spread filter, cooldown.
+//   6. SMC bias       - market structure on H4 (BOS / CHoCH). Bias DOWN = no
+//                       new trades (profitable trades are banked when it
+//                       turns DOWN). Bias UP = aggressive: bigger lot, more
+//                       trades, tighter grid and extra BUYs at untouched H4
+//                       bullish order blocks / fair value gaps in discount.
+//                       No bias yet = normal trading.
 //
 // Honest risk statement
 //   No EA can guarantee zero losses. SyntX prices come from an algorithm and
@@ -41,9 +47,9 @@
 // Requirements: MT5 HEDGING account, Algo Trading enabled. No DLLs.
 //
 #property copyright   "Sirojiddin Sobitov | Serro Deriv !!"
-#property version     "3.00"
+#property version     "3.10"
 #property description "ADRENALINE V3 by Sirojiddin Sobitov (Serro Deriv !!) - BUY-only spike EA for Weltrade MaxGainX 2000."
-#property description "New Fibonacci on every spike, BUY before a level is touched, basket and daily protection."
+#property description "SMC H4 bias (DOWN = no trade, UP = aggressive), spike Fibonacci pre-touch, basket guard."
 #property description "Hedging accounts only. No EA can guarantee zero losses - test on demo first."
 
 #include <Trade\Trade.mqh>
@@ -70,6 +76,13 @@ enum ENUM_FIB_ANCHOR
    FIB_PIVOT = 1          // Confirmed chart pivots (v7)
 };
 
+enum ENUM_BIAS_DOWN_ACTION
+{
+   BIAS_DOWN_KEEP         = 0, // Keep open trades
+   BIAS_DOWN_CLOSE_PROFIT = 1, // Close trades that are in profit
+   BIAS_DOWN_CLOSE_ALL    = 2  // Close all trades
+};
+
 input group "=== 1. MAIN ==="
 input ENUM_LOT_MODE     InpLotMode                  = LOT_RISK_PERCENT;  // Lot mode
 input double            InpRiskPercent              = 1.0;               // Risk % per trade (loss if price falls one full swing)
@@ -91,7 +104,21 @@ input double            InpSpikeSensitivity         = 8.0;               // Spik
 input int               InpWarmupTicks              = 20000;             // History ticks used to learn the symbol (0 = live only)
 input int               InpMaxSpreadPoints          = 0;                 // Maximum spread in points (0 = auto)
 
-input group "=== 3. EXIT & PROFIT PROTECTION ==="
+input group "=== 3. SMC BIAS (MARKET STRUCTURE) ==="
+input bool                  InpUseSmcBias        = true;                   // Use SMC bias (DOWN = no trade, UP = aggressive)
+input ENUM_TIMEFRAMES       InpBiasTF            = PERIOD_H4;              // Bias timeframe
+input int                   InpBiasSwingBars     = 3;                      // Swing strength (bars on each side)
+input int                   InpBiasBars          = 500;                    // Bias bars scanned
+input ENUM_BIAS_DOWN_ACTION InpBiasDownAction    = BIAS_DOWN_CLOSE_PROFIT; // When the bias turns DOWN
+input double                InpAggRiskMultiplier = 1.5;                    // Bias UP: lot multiplier
+input int                   InpAggExtraTrades    = 2;                      // Bias UP: extra open trades allowed
+input double                InpAggGridFactor     = 0.5;                    // Bias UP: grid gap factor (0.5 = half)
+input double                InpAggEntryZone      = 0.236;                  // Bias UP: buy from this Fib level
+input bool                  InpUsePoiEntries     = true;                   // Bias UP: also buy at order blocks / FVGs
+input double                InpPoiWindowPercent  = 10.0;                   // Pre-touch window above a zone (% of bias-TF range)
+input bool                  InpDrawSmc           = true;                   // Draw bias swings and zones on chart
+
+input group "=== 4. EXIT & PROFIT PROTECTION ==="
 input ENUM_SPIKE_ACTION InpOnSpike                  = SPIKE_BANK_BASKET; // When a spike prints
 input double            InpPartialClosePercent      = 50.0;              // Partial close % of each profitable trade
 input int               InpBreakEvenPoints          = 0;                 // Break-even trigger in points (0 = auto, -1 = off)
@@ -99,7 +126,7 @@ input int               InpTrailStartPoints         = 0;                 // Trai
 input int               InpTrailDistancePoints      = 0;                 // Trailing distance in points (0 = auto)
 input double            InpBasketTakeProfitPercent  = 0.0;               // Close basket at profit % of balance (0 = off)
 
-input group "=== 4. BASKET & ACCOUNT PROTECTION ==="
+input group "=== 5. BASKET & ACCOUNT PROTECTION ==="
 input double            InpBasketStopPercent        = 5.0;               // Close ALL when basket loss reaches % of balance
 input double            InpStopAddingPercent        = 3.0;               // No new trades while basket loss >= % of balance (0 = off)
 input double            InpMaxDailyLossPercent      = 5.0;               // Daily loss limit % (close all, stop until next day; 0 = off)
@@ -109,19 +136,19 @@ input int               InpCooldownMinutes          = 30;                // Paus
 input int               InpDisasterSLPoints         = 0;                 // Broker-side far stop-loss per trade in points (0 = off)
 input int               InpSlippagePoints           = 0;                 // Maximum slippage in points (0 = auto)
 
-input group "=== 5. TIME FILTER (server time) ==="
+input group "=== 6. TIME FILTER (server time) ==="
 input bool              InpUseTimeFilter            = false;             // Trade only inside the hours below
 input int               InpStartHour                = 0;                 // Start hour (0-23)
 input int               InpEndHour                  = 24;                // End hour (1-24, may be lower than start for overnight)
 
-input group "=== 6. ALERTS ==="
+input group "=== 7. ALERTS ==="
 input bool              InpAlertPopup               = true;              // Terminal pop-up for important events
 input bool              InpAlertPush                = false;             // Mobile push notifications
 input bool              InpTelegram                 = false;             // Telegram messages
 input string            InpTelegramToken            = "";                // Telegram bot token (keep private)
 input string            InpTelegramChat             = "";                // Telegram chat id
 
-input group "=== 7. DASHBOARD ==="
+input group "=== 8. DASHBOARD ==="
 input bool              InpShowDashboard            = true;              // Show dashboard
 input bool              InpDarkTheme                = true;              // Apply dark neon chart theme
 input bool              InpEnableFX                 = true;              // Animated status light (cosmetic only)
@@ -134,7 +161,7 @@ input bool              InpVerboseLog               = false;             // Deta
 //+------------------------------------------------------------------+
 #define EA_NAME          "ADRENALINE V3"
 #define EA_DISPLAY       "Adrenaline V3"      // name used in logs and alerts
-#define EA_VERSION       "3.00"
+#define EA_VERSION       "3.10"
 #define EA_AUTHOR        "Sirojiddin Sobitov"
 #define EA_BRAND         "Serro Deriv !!"
 #define EA_TAG           "ADRV3"              // prefix of terminal global variables
@@ -154,6 +181,9 @@ input bool              InpVerboseLog               = false;             // Deta
 #define CONFIRM_MS       5000       // CLOSE ALL needs a second click within this time
 #define TIMER_MS         500
 #define THEME_PROPS      14
+#define SMC_MAX_ZONES    6          // untouched bullish OB/FVG zones kept
+#define ZONE_OB          0
+#define ZONE_FVG         1
 
 // THEME - every dashboard and chart colour lives here
 #define CLR_PANEL        C'7,11,20'
@@ -177,13 +207,16 @@ input bool              InpVerboseLog               = false;             // Deta
 #define CLR_CH_BEAR      C'120,90,220'
 #define CLR_CH_BID       C'43,133,161'
 #define CLR_CH_ASK       C'156,89,174'
+#define CLR_OB_ZONE      C'6,44,66'
+#define CLR_FVG_ZONE     C'64,50,6'
 
 // METRICS - every dashboard dimension lives here (scaled at draw time)
 #define UI_FONT          "Consolas"
 #define UI_X             16
 #define UI_Y             24
 #define UI_W             440
-#define UI_H             648
+#define UI_SMC_H         96         // height of the SMC bias section
+#define UI_H             (648+UI_SMC_H)
 #define UI_L             34         // left column
 #define UI_R             250        // right column
 #define UI_BAR_W         404
@@ -256,6 +289,53 @@ struct SSpike
    datetime swingHighTime;
 };
 
+enum ENUM_SMC_MODE
+{
+   SMC_OFF        = 0,
+   SMC_LOADING    = 1,
+   SMC_NO_TRADE   = 2,
+   SMC_NORMAL     = 3,
+   SMC_AGGRESSIVE = 4
+};
+
+enum ENUM_SMC_EVENT
+{
+   SMC_EV_NONE       = 0,
+   SMC_EV_BOS_UP     = 1,
+   SMC_EV_CHOCH_UP   = 2,
+   SMC_EV_BOS_DOWN   = 3,
+   SMC_EV_CHOCH_DOWN = 4
+};
+
+struct SmcZone
+{
+   datetime time;          // candle that defines the zone
+   datetime born;          // bar the zone became known (ageing starts after it)
+   double   top;
+   double   bottom;
+   int      type;          // ZONE_OB or ZONE_FVG
+};
+
+struct SSmc
+{
+   bool     ready;
+   bool     built;         // a full build has happened since start (transition guard)
+   bool     highBroken;
+   bool     lowBroken;
+   int      bias;          // +1 UP, -1 DOWN, 0 NEUTRAL
+   int      event;         // ENUM_SMC_EVENT of the last structure break
+   datetime lastBar;
+   datetime eventTime;
+   datetime swingHighTime;
+   datetime swingLowTime;
+   double   eventLevel;
+   double   swingHigh;     // last confirmed swing high (buy-side liquidity)
+   double   swingLow;      // last confirmed swing low (sell-side liquidity)
+   double   rangeLow;      // dealing range for premium / discount
+   double   rangeHigh;
+   double   atr;           // manual 14-bar true range on the bias timeframe
+};
+
 struct SGuard
 {
    datetime dayStart;
@@ -295,6 +375,10 @@ SGuard   g_guard;
 SUi      g_ui;
 FibPoint g_pivots[];
 MqlRates g_rates[];
+SSmc     g_smc;
+SmcZone  g_zones[];
+MqlRates g_htf[];
+long     g_zoneUsed[];         // zones already traded (also kept in terminal global variables)
 double   g_ratios[FIB_LEVELS]={0.0,0.236,0.382,0.5,0.618,0.786,1.0,1.618,2.618,3.618,4.236};
 bool     g_attempted[FIB_LEVELS];
 
@@ -614,7 +698,7 @@ string NextLevelText(const double bid)
    double bestGap=DBL_MAX;
    for(int i=0;i<FIB_LEVELS;i++)
    {
-      if(g_attempted[i] || g_ratios[i]<InpEntryZone-1e-9) continue;
+      if(g_attempted[i] || g_ratios[i]<EffEntryZone()-1e-9) continue;
       double level=FibPrice(g_ratios[i]),gap=bid-level;
       if(level>0 && gap>0 && gap<bestGap) { best=i; bestGap=gap; }
    }
@@ -778,6 +862,283 @@ int SpikeOnTick(const MqlTick &q)
 }
 
 //+------------------------------------------------------------------+
+//| CORE - SMC market structure on the bias timeframe (default H4)   |
+//+------------------------------------------------------------------+
+// Standard Smart Money Concepts rules, computed from raw bars only:
+//  - Swing high / low: InpBiasSwingBars lower highs / higher lows on each side.
+//  - BOS   = a candle CLOSES beyond the last unbroken swing with the trend.
+//  - CHoCH = the first such close AGAINST the current bias (trend change).
+//  - Bias UP after a bullish break, DOWN after a bearish one, NEUTRAL before any.
+//  - Bullish order block = last bearish candle between the last swing low and
+//    the candle that broke structure up. Bullish FVG = low[i] > high[i-2].
+//  - A zone is used once: removed when a later candle trades into it or
+//    closes below it. Only closed bars are used, so nothing repaints.
+string SmcTfName()                 { return StringSubstr(EnumToString(InpBiasTF),7); }
+string BiasName(const int bias)    { return bias>0 ? "UP" : (bias<0 ? "DOWN" : "NEUTRAL"); }
+
+string EventName(const int ev)
+{
+   switch(ev)
+   {
+      case SMC_EV_BOS_UP:     return "BOS UP";
+      case SMC_EV_CHOCH_UP:   return "CHoCH UP";
+      case SMC_EV_BOS_DOWN:   return "BOS DOWN";
+      case SMC_EV_CHOCH_DOWN: return "CHoCH DOWN";
+   }
+   return "NONE";
+}
+
+ENUM_SMC_MODE SmcMode()
+{
+   if(!InpUseSmcBias) return SMC_OFF;
+   if(!g_smc.ready)   return SMC_LOADING;
+   if(g_smc.bias<0)   return SMC_NO_TRADE;
+   if(g_smc.bias>0)   return SMC_AGGRESSIVE;
+   return SMC_NORMAL;
+}
+
+string ModeName(const ENUM_SMC_MODE mode)
+{
+   switch(mode)
+   {
+      case SMC_OFF:        return "NORMAL (SMC OFF)";
+      case SMC_LOADING:    return "WAIT";
+      case SMC_NO_TRADE:   return "NO TRADE";
+      case SMC_AGGRESSIVE: return "AGGRESSIVE";
+   }
+   return "NORMAL";
+}
+
+// Effective settings: bias UP turns the normal inputs aggressive.
+bool   Aggressive()     { return SmcMode()==SMC_AGGRESSIVE; }
+int    EffMaxTrades()   { return InpMaxOpenTrades+(Aggressive() ? InpAggExtraTrades : 0); }
+double EffGridGap()     { return InpGridGapPercent*(Aggressive() ? InpAggGridFactor : 1.0); }
+double EffEntryZone()   { return Aggressive() ? MathMin(InpEntryZone,InpAggEntryZone) : InpEntryZone; }
+double RiskMultiplier() { return Aggressive() ? InpAggRiskMultiplier : 1.0; }
+
+bool SmcSwingHigh(const int p,const int bars)
+{
+   for(int j=1;j<=bars;j++)
+      if(g_htf[p].high<=g_htf[p-j].high || g_htf[p].high<g_htf[p+j].high) return false;
+   return true;
+}
+
+bool SmcSwingLow(const int p,const int bars)
+{
+   for(int j=1;j<=bars;j++)
+      if(g_htf[p].low>=g_htf[p-j].low || g_htf[p].low>g_htf[p+j].low) return false;
+   return true;
+}
+
+void AddZone(const int type,const datetime time,const double top,const double bottom,const datetime born)
+{
+   if(top<=bottom) return;
+   int n=ArraySize(g_zones);
+   for(int z=0;z<n;z++)
+      if(g_zones[z].time==time && g_zones[z].type==type) return;
+   if(n>=SMC_MAX_ZONES)
+   {
+      for(int z=1;z<n;z++) g_zones[z-1]=g_zones[z];
+      n--;
+   }
+   ArrayResize(g_zones,n+1,SMC_MAX_ZONES);
+   g_zones[n].type=type;
+   g_zones[n].time=time;
+   g_zones[n].born=born;
+   g_zones[n].top=top;
+   g_zones[n].bottom=bottom;
+}
+
+void RemoveZone(const int z)
+{
+   int n=ArraySize(g_zones);
+   for(int k=z+1;k<n;k++) g_zones[k-1]=g_zones[k];
+   ArrayResize(g_zones,n-1);
+}
+
+void AgeZones(const int i)
+{
+   for(int z=ArraySize(g_zones)-1;z>=0;z--)
+   {
+      if(g_htf[i].time<=g_zones[z].born) continue;
+      if(g_htf[i].low<=g_zones[z].top || g_htf[i].close<g_zones[z].bottom) RemoveZone(z);
+   }
+}
+
+string ZoneLabel(const int z)
+{
+   return (g_zones[z].type==ZONE_OB ? "OB " : "FVG ")+Px(g_zones[z].bottom)+"-"+Px(g_zones[z].top);
+}
+
+long   ZoneKey(const int z)          { return (long)g_zones[z].time*2+g_zones[z].type; }
+string ZoneGvName(const long key)    { return g_prefix+"Z"+IntegerToString(key); }
+
+bool ZoneUsed(const int z)
+{
+   long key=ZoneKey(z);
+   for(int k=0;k<ArraySize(g_zoneUsed);k++)
+      if(g_zoneUsed[k]==key) return true;
+   return !g_tester && GlobalVariableCheck(ZoneGvName(key));
+}
+
+bool MarkZoneUsed(const int z)
+{
+   long key=ZoneKey(z);
+   int n=ArraySize(g_zoneUsed);
+   if(n>=64)
+   {
+      for(int k=1;k<n;k++) g_zoneUsed[k-1]=g_zoneUsed[k];
+      n--;
+   }
+   ArrayResize(g_zoneUsed,n+1,64);
+   g_zoneUsed[n]=key;
+   if(g_tester) return true;
+   if(GlobalVariableSet(ZoneGvName(key),(double)TimeCurrent())==0) return false;
+   GlobalVariablesFlush();
+   return true;
+}
+
+int CloseProfitable(const string reason)
+{
+   int closed=0;
+   double pl=0;
+   for(int i=PositionsTotal()-1;i>=0;i--)
+   {
+      ulong ticket=PositionGetTicket(i);
+      if(ticket==0 || !IsMine()) continue;
+      double profit=PositionGetDouble(POSITION_PROFIT)+PositionGetDouble(POSITION_SWAP);
+      if(profit<=0) continue;
+      if(ClosePosition(ticket)) { closed++; pl+=profit; }
+   }
+   if(closed>0)
+   {
+      g_guard.closedDirty=true;
+      Notify(reason+": closed "+IntegerToString(closed)+" trade(s) in profit, about "+Money(pl),MSG_ALERT);
+   }
+   return closed;
+}
+
+void OnBiasChange(const int oldBias)
+{
+   string text="SMC bias "+BiasName(oldBias)+" -> "+BiasName(g_smc.bias)+" on "+SmcTfName()+
+               " ("+EventName(g_smc.event)+" @ "+Px(g_smc.eventLevel)+")";
+   if(g_smc.bias<0)
+   {
+      Notify(text+". No new trades.",MSG_ALERT);
+      if(InpBiasDownAction==BIAS_DOWN_CLOSE_PROFIT)   CloseProfitable("SMC BIAS DOWN");
+      else if(InpBiasDownAction==BIAS_DOWN_CLOSE_ALL) CloseBasket("SMC BIAS DOWN");
+   }
+   else if(g_smc.bias>0) Notify(text+". AGGRESSIVE mode.",MSG_ALERT);
+   else                  Notify(text,MSG_TRADE);
+}
+
+// Rebuilt from history once per new bias-timeframe bar: deterministic and
+// restart-safe. A bias change found on the very first build after a start
+// is not treated as a transition, so attaching the EA never closes trades.
+bool UpdateSmc()
+{
+   if(!InpUseSmcBias) return true;
+   datetime current=iTime(_Symbol,InpBiasTF,0);
+   if(g_smc.ready && current>0 && current==g_smc.lastBar) return true;
+   int bars=InpBiasSwingBars;
+   int n=CopyRates(_Symbol,InpBiasTF,0,InpBiasBars,g_htf);
+   if(n<2*bars+ATR_BARS+3) { g_smc.ready=false; return false; }
+
+   int oldBias=g_smc.bias;
+   bool firstBuild=!g_smc.built;
+   g_smc.bias=0; g_smc.event=SMC_EV_NONE; g_smc.eventTime=0; g_smc.eventLevel=0;
+   g_smc.swingHigh=0; g_smc.swingLow=0; g_smc.swingHighTime=0; g_smc.swingLowTime=0;
+   g_smc.highBroken=false; g_smc.lowBroken=false;
+   ArrayResize(g_zones,0);
+   int lowIndex=-1;
+
+   for(int i=bars;i<n-1;i++)                        // n-1 is the forming bar: never used
+   {
+      int p=i-bars;                                 // pivot confirmed by bar i
+      if(p>=bars)
+      {
+         if(SmcSwingHigh(p,bars)) { g_smc.swingHigh=g_htf[p].high; g_smc.swingHighTime=g_htf[p].time; g_smc.highBroken=false; }
+         if(SmcSwingLow(p,bars))  { g_smc.swingLow=g_htf[p].low;   g_smc.swingLowTime=g_htf[p].time;  g_smc.lowBroken=false; lowIndex=p; }
+      }
+      AgeZones(i);
+      if(i>=2 && g_htf[i].low>g_htf[i-2].high)
+         AddZone(ZONE_FVG,g_htf[i-1].time,g_htf[i].low,g_htf[i-2].high,g_htf[i].time);
+
+      double closePrice=g_htf[i].close;
+      if(g_smc.swingHigh>0 && !g_smc.highBroken && closePrice>g_smc.swingHigh)
+      {
+         g_smc.highBroken=true;
+         g_smc.event=(g_smc.bias<0) ? SMC_EV_CHOCH_UP : SMC_EV_BOS_UP;
+         g_smc.eventTime=g_htf[i].time;
+         g_smc.eventLevel=g_smc.swingHigh;
+         g_smc.bias=1;
+         int from=(lowIndex>=0 && lowIndex<i) ? lowIndex : MathMax(0,i-3*bars);
+         for(int k=i;k>=from;k--)
+            if(g_htf[k].close<g_htf[k].open)
+            { AddZone(ZONE_OB,g_htf[k].time,g_htf[k].high,g_htf[k].low,g_htf[i].time); break; }
+      }
+      else if(g_smc.swingLow>0 && !g_smc.lowBroken && closePrice<g_smc.swingLow)
+      {
+         g_smc.lowBroken=true;
+         g_smc.event=(g_smc.bias>0) ? SMC_EV_CHOCH_DOWN : SMC_EV_BOS_DOWN;
+         g_smc.eventTime=g_htf[i].time;
+         g_smc.eventLevel=g_smc.swingLow;
+         g_smc.bias=-1;
+      }
+   }
+
+   // Dealing range: last swing low -> highest high since it (premium / discount).
+   g_smc.rangeLow=g_smc.swingLow;
+   g_smc.rangeHigh=g_smc.swingHigh;
+   for(int i=(lowIndex>=0 ? lowIndex : 0);i<n-1;i++) g_smc.rangeHigh=MathMax(g_smc.rangeHigh,g_htf[i].high);
+
+   double sum=0;
+   for(int i=n-1-ATR_BARS;i<n-1;i++)
+      sum+=MathMax(g_htf[i].high-g_htf[i].low,
+                   MathMax(MathAbs(g_htf[i].high-g_htf[i-1].close),MathAbs(g_htf[i].low-g_htf[i-1].close)));
+   g_smc.atr=sum/ATR_BARS;
+
+   g_smc.lastBar=g_htf[n-1].time;
+   g_smc.ready=true;
+   g_smc.built=true;
+   if(!firstBuild && oldBias!=g_smc.bias) OnBiasChange(oldBias);
+   return true;
+}
+
+// SMC point-of-interest entry: price falling toward the top of an untouched
+// bullish OB / FVG that sits in the discount half of the dealing range.
+int SelectPoi(const double bid)
+{
+   if(g_smc.atr<=0) return -1;
+   double window=g_smc.atr*InpPoiWindowPercent/100.0;
+   bool hasRange=(g_smc.rangeLow>0 && g_smc.rangeHigh>g_smc.rangeLow);
+   double equilibrium=hasRange ? (g_smc.rangeLow+g_smc.rangeHigh)/2.0 : DBL_MAX;
+   double barLow=iLow(_Symbol,InpBiasTF,0);
+   int best=-1;
+   double bestGap=DBL_MAX;
+   for(int z=0;z<ArraySize(g_zones);z++)
+   {
+      double top=g_zones[z].top,gap=bid-top;
+      if(top>=equilibrium || ZoneUsed(z)) continue;
+      if(barLow>0 && barLow<=top) continue;          // already touched in the forming bias bar
+      if(gap>0 && gap<=window && gap<bestGap) { best=z; bestGap=gap; }
+   }
+   return best;
+}
+
+string NearestZoneText(const double bid)
+{
+   int best=-1;
+   double bestGap=DBL_MAX;
+   for(int z=0;z<ArraySize(g_zones);z++)
+   {
+      double gap=bid-g_zones[z].top;
+      if(gap>0 && gap<bestGap && !ZoneUsed(z)) { best=z; bestGap=gap; }
+   }
+   return best<0 ? "none below price" : ZoneLabel(best);
+}
+
+//+------------------------------------------------------------------+
 //| RISK - lot sizing, margin, basket, daily limits                  |
 //+------------------------------------------------------------------+
 bool IsMine()
@@ -835,6 +1196,7 @@ double CalcLots(string &why)
       if(perLot<=0) { why="Waiting for tick value to size the lot"; return 0; }
       raw=AccountInfoDouble(ACCOUNT_EQUITY)*InpRiskPercent/100.0/perLot;
    }
+   raw*=RiskMultiplier();                           // bias UP: bigger lot (never after losses)
    double cap=MathMin(InpMaxLot,g_volMax);
    double lots=NormalizeDouble(MathFloor(MathMin(raw,cap)/g_volStep+1e-8)*g_volStep,g_volDigits);
    if(lots<g_volMin-1e-10)
@@ -1211,10 +1573,27 @@ bool EvaluateGuards(const SBasket &b)
    return acted;
 }
 
+// Pre-touch Fibonacci candidate: price falling toward the level, not touched
+// yet (since the spike, or in this candle on a pivot swing), inside the window.
+int SelectFibLevel(const double bid)
+{
+   double window=FibRange()*InpBeforeTouchPercent/100.0,untouched=TouchFloor(),zoneFrom=EffEntryZone();
+   int selected=-1;
+   double nearest=DBL_MAX;
+   for(int i=0;i<FIB_LEVELS;i++)
+   {
+      if(g_attempted[i] || g_ratios[i]<zoneFrom-1e-9) continue;
+      double level=FibPrice(g_ratios[i]),gap=bid-level;
+      if(level>0 && gap>0 && gap<=window && untouched>level && gap<nearest) { selected=i; nearest=gap; }
+   }
+   return selected;
+}
+
 // Every gate writes a plain-English note for the dashboard.
 void TryBuy(const MqlTick &q,const SBasket &b,const int jump)
 {
    g_nextLot=0;
+   ENUM_SMC_MODE smc=SmcMode();
    if(!g_symbolOK)                          { g_note=g_symbolStatus; return; }
    if(g_guard.halted)                       { g_note="Daily loss limit hit - waiting for the next server day"; return; }
    if(g_paused)                             { g_note="Manual pause - open trades are still managed"; return; }
@@ -1222,18 +1601,20 @@ void TryBuy(const MqlTick &q,const SBasket &b,const int jump)
    if(InCooldown())                         { g_note="Cooldown after basket stop until "+TimeToString(g_guard.cooldownUntil,TIME_MINUTES); return; }
    if(g_guard.profitLocked)                 { g_note="Daily profit target reached - no new trades today"; return; }
    if(!TimeAllowed())                       { g_note="Outside trading hours"; return; }
+   if(smc==SMC_LOADING)                     { g_note="Loading "+SmcTfName()+" market structure"; return; }
+   if(smc==SMC_NO_TRADE)                    { g_note="SMC bias DOWN on "+SmcTfName()+" ("+EventName(g_smc.event)+") - no new trades"; return; }
    if(!g_spike.warmed)                      { g_note="Learning the symbol's tick behaviour"; return; }
    if(g_spike.dirWarning)                   { g_note="Big DOWN jumps dominate - not a GainX-type symbol"; return; }
-   if(!g_fib.ready || !HasFib())            { g_note="Waiting for a confirmed Fibonacci swing"; return; }
+   if(!g_fib.ready)                         { g_note="Waiting for chart history"; return; }
    if((long)TimeCurrent()-(long)q.time>60)  { g_note="Waiting for a live quote"; return; }
    if(jump>0)                               { g_note="Spike in progress - no entry on a spike tick"; return; }
-   if(g_spike.lastDelta>=0)                 { g_note="Waiting for a falling tick into a Fibonacci level"; return; }
+   if(g_spike.lastDelta>=0)                 { g_note="Waiting for a falling tick into a level"; return; }
 
    double spread=q.ask-q.bid;
    if(spread>SpreadLimit()) { g_note="Spread "+Pt(spread)+" pt is above the limit "+Pt(SpreadLimit())+" pt"; return; }
    long mode=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_MODE);
    if(mode!=SYMBOL_TRADE_MODE_FULL && mode!=SYMBOL_TRADE_MODE_LONGONLY) { g_note="Symbol does not accept new BUYs"; return; }
-   if(b.count>=InpMaxOpenTrades) { g_note="Maximum open trades reached - managing the basket"; return; }
+   if(b.count>=EffMaxTrades()) { g_note="Maximum open trades reached - managing the basket"; return; }
    double balance=AccountInfoDouble(ACCOUNT_BALANCE);
    if(b.count>0 && InpStopAddingPercent>0 && b.profit<=-balance*InpStopAddingPercent/100.0)
    { g_note="Basket "+Money(b.profit)+" - no new trades at the stop-adding level"; return; }
@@ -1244,31 +1625,20 @@ void TryBuy(const MqlTick &q,const SBasket &b,const int jump)
       { g_note="Waiting for an outstanding order"; return; }
    }
 
-   // The v7 grid never used the lowest open price, so BUYs could stack at
-   // almost the same price. Each new BUY must now be clearly lower.
-   // The first BUY of every new spike is allowed anywhere (InpTradeEverySpike);
-   // later BUYs on the same spike must respect the grid gap.
-   double range=FibRange(),window=range*InpBeforeTouchPercent/100.0;
+   // Grid gap: each new BUY must be clearly below the lowest open BUY. The
+   // first BUY of every new spike is allowed anywhere (InpTradeEverySpike).
+   double gapPrice=FibRange()*EffGridGap()/100.0;
+   bool gapOK=(b.count==0 || q.ask<=b.lowest-gapPrice);
    bool spikeTrade=(InpTradeEverySpike && g_fib.fromSpike && !g_fib.swingTraded);
-   if(b.count>0 && !spikeTrade && q.ask>b.lowest-range*InpGridGapPercent/100.0)
-   { g_note="Waiting for the grid gap below the lowest BUY "+Px(b.lowest); return; }
-   double untouched=TouchFloor();
-
-   int selected=-1;
-   double nearest=DBL_MAX;
-   for(int i=0;i<FIB_LEVELS;i++)
+   int level=-1,zone=-1;
+   if(HasFib() && (gapOK || spikeTrade)) level=SelectFibLevel(q.bid);
+   if(level<0 && gapOK && InpUsePoiEntries && smc==SMC_AGGRESSIVE) zone=SelectPoi(q.bid);
+   if(level<0 && zone<0)
    {
-      if(g_attempted[i] || g_ratios[i]<InpEntryZone-1e-9) continue;
-      double level=FibPrice(g_ratios[i]),gap=q.bid-level;
-      // Pre-touch: price is falling toward the level, has not touched it yet
-      // (since the spike, or in this candle on a pivot swing) and is inside
-      // the window just above it.
-      if(level>0 && gap>0 && gap<=window && untouched>level && gap<nearest) { selected=i; nearest=gap; }
-   }
-   if(selected<0)
-   {
-      g_note="Scanning: price at "+DoubleToString(Retracement(q.bid)*100.0,1)+"% of swing, entry zone from "+
-             DoubleToString(InpEntryZone*100.0,1)+"%";
+      if(!gapOK && !spikeTrade) g_note="Waiting for the grid gap below the lowest BUY "+Px(b.lowest);
+      else if(!HasFib())        g_note="Waiting for a Fibonacci swing";
+      else g_note="Scanning: price at "+DoubleToString(Retracement(q.bid)*100.0,1)+"% of swing, entry from "+
+                  DoubleToString(EffEntryZone()*100.0,1)+"%"+(smc==SMC_AGGRESSIVE ? " | AGGRESSIVE" : "");
       return;
    }
 
@@ -1284,17 +1654,26 @@ void TryBuy(const MqlTick &q,const SBasket &b,const int jump)
    if(!MarginAllows(AccountInfoDouble(ACCOUNT_EQUITY),AccountInfoDouble(ACCOUNT_MARGIN_FREE),margin,spreadCost,InpFreeMarginReservePercent))
    { g_note="Margin guard: keeping "+DoubleToString(InpFreeMarginReservePercent,0)+"% of equity free"; return; }
 
-   // Reserve the level BEFORE sending: no repeat on the same approach, even after a restart.
-   g_attempted[selected]=true;
-   if(!g_tester)
+   // Reserve the level / zone BEFORE sending: no repeat, even after a restart.
+   string label;
+   if(level>=0)
    {
-      if(GlobalVariableSet(LevelKey(selected),(double)TimeCurrent())==0) { g_note="Cannot store the level reservation"; return; }
-      GlobalVariablesFlush();
+      label="Fib "+DoubleToString(g_ratios[level],3);
+      g_attempted[level]=true;
+      if(!g_tester)
+      {
+         if(GlobalVariableSet(LevelKey(level),(double)TimeCurrent())==0) { g_note="Cannot store the level reservation"; return; }
+         GlobalVariablesFlush();
+      }
+   }
+   else
+   {
+      label=SmcTfName()+" "+ZoneLabel(zone);
+      if(!MarkZoneUsed(zone)) { g_note="Cannot store the zone reservation"; return; }
    }
 
    double sl=0;
    if(InpDisasterSLPoints>0) sl=FloorToTick(q.bid-MathMax(InpDisasterSLPoints*g_point,StopsDistance()));
-   string ratio=DoubleToString(g_ratios[selected],3);
    g_trade.SetDeviationInPoints(Deviation());
    bool done=false;
    uint rc=0;
@@ -1307,15 +1686,15 @@ void TryBuy(const MqlTick &q,const SBasket &b,const int jump)
    }
    if(done)
    {
-      g_fib.swingTraded=true;
-      g_note="BUY "+Lots(volume)+" lots at Fib "+ratio;
-      Notify("BUY "+Lots(volume)+" lots @ "+Px(g_trade.ResultPrice())+" | Fib "+ratio+
+      if(level>=0) g_fib.swingTraded=true;
+      g_note="BUY "+Lots(volume)+" lots at "+label;
+      Notify("BUY "+Lots(volume)+" lots @ "+Px(g_trade.ResultPrice())+" | "+label+" | "+ModeName(smc)+
              (g_minLotUsed ? " | broker minimum lot (above risk %)" : ""),MSG_TRADE);
    }
    else
    {
-      g_note="BUY rejected: "+g_trade.ResultRetcodeDescription()+" - level reserved";
-      Notify("BUY rejected ("+IntegerToString(rc)+" "+g_trade.ResultRetcodeDescription()+"), Fib "+ratio+" reserved",MSG_LOG);
+      g_note="BUY rejected: "+g_trade.ResultRetcodeDescription()+" - "+label+" reserved";
+      Notify("BUY rejected ("+IntegerToString(rc)+" "+g_trade.ResultRetcodeDescription()+"), "+label+" reserved",MSG_LOG);
    }
 }
 
@@ -1425,11 +1804,16 @@ string StatusText(const SBasket &b,color &accent)
    if(g_paused)             { accent=CLR_GOLD; return "MANUAL PAUSE / MANAGING"; }
    if(InCooldown())         { accent=CLR_WARN; return "COOLDOWN AFTER BASKET STOP"; }
    if(g_guard.profitLocked) { accent=CLR_GOLD; return "DAILY TARGET HIT / MANAGING"; }
+   ENUM_SMC_MODE smc=SmcMode();
+   if(smc==SMC_LOADING)     { accent=CLR_WARN; return "LOADING "+SmcTfName()+" STRUCTURE"; }
+   if(smc==SMC_NO_TRADE)    { accent=CLR_BAD;  return "SMC BIAS DOWN / NO NEW TRADES"; }
    if(!g_spike.warmed)      { accent=CLR_WARN; return "LEARNING SYMBOL TICKS"; }
    if(!HasFib())            { accent=CLR_WARN; return "WAITING FOR FIB SWING"; }
    if(!TimeAllowed())       { accent=CLR_WARN; return "OUTSIDE TRADING HOURS"; }
-   if(b.count>0)            { accent=CLR_GOOD; return "BASKET ACTIVE / HUNTING SPIKE"; }
-   return "SCANNING DISCOUNT ZONE";
+   bool aggressive=(smc==SMC_AGGRESSIVE);
+   if(b.count>0)            { accent=CLR_GOOD; return aggressive ? "BIAS UP / AGGRESSIVE BASKET" : "BASKET ACTIVE / HUNTING SPIKE"; }
+   if(aggressive)           { accent=CLR_GOOD; return "BIAS UP / AGGRESSIVE SCAN"; }
+   return "SCANNING FOR ENTRY";
 }
 
 void DrawDashboard()
@@ -1456,77 +1840,95 @@ void DrawDashboard()
    HUDBox("LIGHT",UI_L+12,124,10,10,(InpEnableFX && g_ui.pulse) ? CLR_DIM : accent,accent);
    HUDText("STATUS",UI_L+32,120,state,accent,10);
 
-   // 01 Spike engine
-   HUDText("S1",UI_L,160,"01 / SPIKE ENGINE",CLR_MUTED,9);
-   HUDText("S1A",UI_L,182,"THRESHOLD  "+Pt(SpikeThreshold())+" pt",CLR_TEXT);
-   HUDText("S1B",UI_R,182,"NORMAL TICK  "+Pt(g_spike.avgTick)+" pt",CLR_TEXT);
-   HUDText("S1C",UI_L,202,"SPIKES SEEN  "+IntegerToString(g_spike.spikes),CLR_TEXT);
-   HUDText("S1D",UI_R,202,"AVG EVERY  "+(g_spike.avgInterval>0 ? DoubleToString(g_spike.avgInterval,0)+" ticks" : "--"),CLR_TEXT);
-   HUDText("S1E",UI_L,222,"LAST  "+(g_spike.spikes>0 ? "+"+Pt(g_spike.lastSize)+" pt  "+Ago(g_spike.lastTime)+" ago" : "--"),CLR_GOLD);
-   HUDText("S1F",UI_R,222,"SINCE  "+(g_spike.lastSpikeTick>0 ? IntegerToString(g_spike.ticks-g_spike.lastSpikeTick)+" ticks" : "--"),CLR_TEXT);
+   // 01 SMC bias
+   ENUM_SMC_MODE smc=SmcMode();
+   string biasText="BIAS  "+(smc==SMC_OFF ? "OFF" : (smc==SMC_LOADING ? "LOADING" : BiasName(g_smc.bias)));
+   color biasInk=(smc==SMC_OFF) ? CLR_MUTED : (smc==SMC_LOADING ? CLR_WARN :
+                 (g_smc.bias>0 ? CLR_GOOD : (g_smc.bias<0 ? CLR_BAD : CLR_GOLD)));
+   HUDText("S0",UI_L,160,"01 / SMC BIAS  ("+SmcTfName()+" MARKET STRUCTURE)",CLR_MUTED,9);
+   HUDText("S0A",UI_L,180,biasText,biasInk,12);
+   HUDText("S0B",UI_R,183,"MODE  "+ModeName(smc),biasInk);
+   string lastEvent=(g_smc.eventTime>0) ? EventName(g_smc.event)+"  "+StringSubstr(TimeToString(g_smc.eventTime,TIME_DATE|TIME_MINUTES),5) : "--";
+   HUDText("S0C",UI_L,206,"LAST  "+lastEvent,CLR_TEXT);
+   HUDText("S0D",UI_R,206,"ZONES  "+IntegerToString(ArraySize(g_zones))+" OB/FVG",CLR_NEON);
+   ObjectSetString(0,g_pre+"HUD_S0D",OBJPROP_TOOLTIP,"Nearest untouched zone: "+(quoted ? NearestZoneText(q.bid) : "--"));
+   bool hasRange=(g_smc.rangeLow>0 && g_smc.rangeHigh>g_smc.rangeLow);
+   double pd=(quoted && hasRange) ? (q.bid-g_smc.rangeLow)/(g_smc.rangeHigh-g_smc.rangeLow) : -1.0;
+   string pdText=(pd<0) ? "--" : DoubleToString(pd*100.0,0)+"% "+(pd<0.5 ? "DISCOUNT" : "PREMIUM");
+   HUDText("S0E",UI_L,226,"RANGE  "+Px(g_smc.rangeLow)+" - "+Px(g_smc.rangeHigh)+"   "+pdText,(pd>=0 && pd<0.5) ? CLR_GOOD : CLR_TEXT);
+   HUDBox("RULE0",UI_L,248,UI_BAR_W,1,CLR_EDGE,CLR_EDGE);
+
+   // 02 Spike engine
+   HUDText("S1",UI_L,UI_SMC_H+160,"02 / SPIKE ENGINE",CLR_MUTED,9);
+   HUDText("S1A",UI_L,UI_SMC_H+182,"THRESHOLD  "+Pt(SpikeThreshold())+" pt",CLR_TEXT);
+   HUDText("S1B",UI_R,UI_SMC_H+182,"NORMAL TICK  "+Pt(g_spike.avgTick)+" pt",CLR_TEXT);
+   HUDText("S1C",UI_L,UI_SMC_H+202,"SPIKES SEEN  "+IntegerToString(g_spike.spikes),CLR_TEXT);
+   HUDText("S1D",UI_R,UI_SMC_H+202,"AVG EVERY  "+(g_spike.avgInterval>0 ? DoubleToString(g_spike.avgInterval,0)+" ticks" : "--"),CLR_TEXT);
+   HUDText("S1E",UI_L,UI_SMC_H+222,"LAST  "+(g_spike.spikes>0 ? "+"+Pt(g_spike.lastSize)+" pt  "+Ago(g_spike.lastTime)+" ago" : "--"),CLR_GOLD);
+   HUDText("S1F",UI_R,UI_SMC_H+222,"SINCE  "+(g_spike.lastSpikeTick>0 ? IntegerToString(g_spike.ticks-g_spike.lastSpikeTick)+" ticks" : "--"),CLR_TEXT);
    string direction=!g_spike.warmed ? "LEARNING  "+IntegerToString(g_spike.liveTicks)+" live ticks" :
                     (g_spike.dirWarning ? "DIRECTION  DOWN JUMPS - ENTRIES BLOCKED" : "DIRECTION  UP SPIKES - OK");
-   HUDText("S1G",UI_L,242,direction,!g_spike.warmed ? CLR_WARN : (g_spike.dirWarning ? CLR_BAD : CLR_GOOD));
+   HUDText("S1G",UI_L,UI_SMC_H+242,direction,!g_spike.warmed ? CLR_WARN : (g_spike.dirWarning ? CLR_BAD : CLR_GOOD));
 
    // 02 Fibonacci zone
-   HUDBox("RULE1",UI_L,266,UI_BAR_W,1,CLR_EDGE,CLR_EDGE);
-   HUDText("S2",UI_L,276,"02 / FIBONACCI  ("+(g_fib.fromSpike ? "LAST SPIKE" : "CHART PIVOTS")+")",CLR_MUTED,9);
-   HUDText("S2A",UI_L,298,"SWING LOW  "+Px(g_fib.low),CLR_NEON);
-   HUDText("S2B",UI_R,298,"SWING HIGH  "+Px(g_fib.high),CLR_NEON);
+   HUDBox("RULE1",UI_L,UI_SMC_H+266,UI_BAR_W,1,CLR_EDGE,CLR_EDGE);
+   HUDText("S2",UI_L,UI_SMC_H+276,"03 / FIBONACCI  ("+(g_fib.fromSpike ? "LAST SPIKE" : "CHART PIVOTS")+")",CLR_MUTED,9);
+   HUDText("S2A",UI_L,UI_SMC_H+298,"SWING LOW  "+Px(g_fib.low),CLR_NEON);
+   HUDText("S2B",UI_R,UI_SMC_H+298,"SWING HIGH  "+Px(g_fib.high),CLR_NEON);
    double retr=(quoted && HasFib()) ? Retracement(q.bid) : 0.0;
-   bool inZone=(HasFib() && retr>=InpEntryZone);
+   bool inZone=(HasFib() && retr>=EffEntryZone());
    string zone=!HasFib() ? "--" : DoubleToString(retr*100.0,1)+"%  "+(inZone ? "IN ZONE" : "ABOVE ZONE");
-   HUDText("S2C",UI_L,318,"RETRACE  "+zone,inZone ? CLR_GOOD : CLR_TEXT);
-   HUDText("S2D",UI_R,318,"ENTRY FROM  "+DoubleToString(InpEntryZone*100.0,1)+"%",CLR_GOLD);
-   HUDBar("S2BAR",340,retr,inZone ? CLR_GOOD : CLR_NEON);
-   int zoneX=UI_L+(int)MathRound(UI_BAR_W*MathMin(1.0,InpEntryZone));
-   HUDBox("S2MARK",MathMin(zoneX,UI_L+UI_BAR_W-2),336,2,14,CLR_GOLD,CLR_GOLD);
-   HUDText("S2E",UI_L,356,"NEXT LEVEL  "+(quoted ? NextLevelText(q.bid) : "--"),CLR_TEXT);
+   HUDText("S2C",UI_L,UI_SMC_H+318,"RETRACE  "+zone,inZone ? CLR_GOOD : CLR_TEXT);
+   HUDText("S2D",UI_R,UI_SMC_H+318,"ENTRY FROM  "+DoubleToString(EffEntryZone()*100.0,1)+"%",CLR_GOLD);
+   HUDBar("S2BAR",UI_SMC_H+340,retr,inZone ? CLR_GOOD : CLR_NEON);
+   int zoneX=UI_L+(int)MathRound(UI_BAR_W*MathMin(1.0,EffEntryZone()));
+   HUDBox("S2MARK",MathMin(zoneX,UI_L+UI_BAR_W-2),UI_SMC_H+336,2,14,CLR_GOLD,CLR_GOLD);
+   HUDText("S2E",UI_L,UI_SMC_H+356,"NEXT LEVEL  "+(quoted ? NextLevelText(q.bid) : "--"),CLR_TEXT);
 
    // 03 Basket
-   HUDBox("RULE2",UI_L,380,UI_BAR_W,1,CLR_EDGE,CLR_EDGE);
-   HUDText("S3",UI_L,390,"03 / BASKET",CLR_MUTED,9);
-   HUDText("S3A",UI_L,412,"OPEN  "+IntegerToString(b.count)+" / "+IntegerToString(InpMaxOpenTrades)+"   LOTS  "+Lots(b.lots),CLR_TEXT);
-   HUDText("S3B",UI_R,412,"FLOATING  "+Money(b.profit),b.profit>=0 ? CLR_GOOD : CLR_BAD);
-   HUDText("S3C",UI_L,432,"LOWEST  "+Px(b.lowest),CLR_TEXT);
-   HUDText("S3D",UI_R,432,"PROTECTED  "+IntegerToString(b.guarded)+" / "+IntegerToString(b.count),b.guarded>0 ? CLR_GOOD : CLR_TEXT);
-   HUDText("S3E",UI_L,452,"BASKET STOP  "+Money(-balance*InpBasketStopPercent/100.0),CLR_BAD);
+   HUDBox("RULE2",UI_L,UI_SMC_H+380,UI_BAR_W,1,CLR_EDGE,CLR_EDGE);
+   HUDText("S3",UI_L,UI_SMC_H+390,"04 / BASKET",CLR_MUTED,9);
+   HUDText("S3A",UI_L,UI_SMC_H+412,"OPEN  "+IntegerToString(b.count)+" / "+IntegerToString(EffMaxTrades())+"   LOTS  "+Lots(b.lots),CLR_TEXT);
+   HUDText("S3B",UI_R,UI_SMC_H+412,"FLOATING  "+Money(b.profit),b.profit>=0 ? CLR_GOOD : CLR_BAD);
+   HUDText("S3C",UI_L,UI_SMC_H+432,"LOWEST  "+Px(b.lowest),CLR_TEXT);
+   HUDText("S3D",UI_R,UI_SMC_H+432,"PROTECTED  "+IntegerToString(b.guarded)+" / "+IntegerToString(b.count),b.guarded>0 ? CLR_GOOD : CLR_TEXT);
+   HUDText("S3E",UI_L,UI_SMC_H+452,"BASKET STOP  "+Money(-balance*InpBasketStopPercent/100.0),CLR_BAD);
    string why="";
    double preview=(g_nextLot>0) ? g_nextLot : CalcLots(why);
    string lotText=(preview>0) ? Lots(preview)+(g_minLotUsed ? " MIN" : "") : "BLOCKED";
-   HUDText("S3F",UI_R,452,"NEXT LOT  "+lotText,g_minLotUsed ? CLR_WARN : CLR_NEON);
+   HUDText("S3F",UI_R,UI_SMC_H+452,"NEXT LOT  "+lotText,g_minLotUsed ? CLR_WARN : CLR_NEON);
 
    // 04 Risk guard
-   HUDBox("RULE3",UI_L,476,UI_BAR_W,1,CLR_EDGE,CLR_EDGE);
-   HUDText("S4",UI_L,486,"04 / RISK GUARD",CLR_MUTED,9);
-   HUDText("S4A",UI_L,508,"BALANCE  "+DoubleToString(balance,2),CLR_TEXT);
-   HUDText("S4B",UI_R,508,"EQUITY  "+DoubleToString(equity,2),CLR_TEXT);
+   HUDBox("RULE3",UI_L,UI_SMC_H+476,UI_BAR_W,1,CLR_EDGE,CLR_EDGE);
+   HUDText("S4",UI_L,UI_SMC_H+486,"05 / RISK GUARD",CLR_MUTED,9);
+   HUDText("S4A",UI_L,UI_SMC_H+508,"BALANCE  "+DoubleToString(balance,2),CLR_TEXT);
+   HUDText("S4B",UI_R,UI_SMC_H+508,"EQUITY  "+DoubleToString(equity,2),CLR_TEXT);
    double base=(g_guard.dayBalance>0) ? g_guard.dayBalance : balance;
    double lossLimit=base*InpMaxDailyLossPercent/100.0,profitTarget=base*InpMaxDailyProfitPercent/100.0;
    string limitText=(InpMaxDailyLossPercent>0) ? "LIMIT -"+DoubleToString(lossLimit,2) : "LIMIT OFF";
-   HUDText("S4C",UI_L,528,"TODAY  "+Money(g_guard.dailyPL)+"   "+limitText,g_guard.dailyPL>=0 ? CLR_GOOD : CLR_BAD);
+   HUDText("S4C",UI_L,UI_SMC_H+528,"TODAY  "+Money(g_guard.dailyPL)+"   "+limitText,g_guard.dailyPL>=0 ? CLR_GOOD : CLR_BAD);
    double dayFill=0;
    if(g_guard.dailyPL<0 && lossLimit>0) dayFill=-g_guard.dailyPL/lossLimit;
    if(g_guard.dailyPL>0 && profitTarget>0) dayFill=g_guard.dailyPL/profitTarget;
-   HUDBar("S4BAR",548,dayFill,g_guard.dailyPL>=0 ? CLR_GOOD : CLR_BAD);
+   HUDBar("S4BAR",UI_SMC_H+548,dayFill,g_guard.dailyPL>=0 ? CLR_GOOD : CLR_BAD);
    double spread=quoted ? q.ask-q.bid : 0.0;
-   HUDText("S4D",UI_L,560,"SPREAD  "+Pt(spread)+" / "+Pt(SpreadLimit())+" pt",spread>SpreadLimit() ? CLR_BAD : CLR_TEXT);
+   HUDText("S4D",UI_L,UI_SMC_H+560,"SPREAD  "+Pt(spread)+" / "+Pt(SpreadLimit())+" pt",spread>SpreadLimit() ? CLR_BAD : CLR_TEXT);
    string guardText="GUARD  READY";
    color guardInk=CLR_GOOD;
    if(g_guard.halted)            { guardText="GUARD  HALTED TODAY";  guardInk=CLR_BAD; }
    else if(InCooldown())         { guardText="COOLDOWN  "+TimeToString(g_guard.cooldownUntil,TIME_MINUTES); guardInk=CLR_WARN; }
    else if(g_guard.profitLocked) { guardText="GUARD  TARGET HIT";    guardInk=CLR_GOLD; }
-   HUDText("S4E",UI_R,560,guardText,guardInk);
+   HUDText("S4E",UI_R,UI_SMC_H+560,guardText,guardInk);
 
    // Notes, footer, buttons
-   HUDText("NOTE",UI_L,584,HUDShort(g_note,60),CLR_TEXT,8);
+   HUDText("NOTE",UI_L,UI_SMC_H+584,HUDShort(g_note,60),CLR_TEXT,8);
    ObjectSetString(0,g_pre+"HUD_NOTE",OBJPROP_TOOLTIP,g_note);
    string be=(BreakEvenTrigger()>0) ? Pt(BreakEvenTrigger()) : "OFF";
    string trail=(TrailStart()>0 && TrailDistance()>0) ? Pt(TrailStart())+"/"+Pt(TrailDistance()) : "OFF";
-   HUDText("FOOT",UI_L,604,"BE "+be+" pt   TRAIL "+trail+" pt   SLIP "+IntegerToString((long)Deviation())+" pt",CLR_MUTED,8);
-   HUDButton("PAUSE",UI_L,626,g_paused ? "RESUME NEW ENTRIES" : "PAUSE NEW ENTRIES",g_paused ? CLR_GOLD : CLR_NEON);
+   HUDText("FOOT",UI_L,UI_SMC_H+604,"BE "+be+" pt   TRAIL "+trail+" pt   SLIP "+IntegerToString((long)Deviation())+" pt",CLR_MUTED,8);
+   HUDButton("PAUSE",UI_L,UI_SMC_H+626,g_paused ? "RESUME NEW ENTRIES" : "PAUSE NEW ENTRIES",g_paused ? CLR_GOLD : CLR_NEON);
    bool confirming=(g_ui.confirmUntil>0 && GetTickCount64()<=g_ui.confirmUntil);
-   HUDButton("CLOSE",UI_L+UI_BAR_W-UI_BTN_W,626,confirming ? "CLICK AGAIN TO CONFIRM" : "CLOSE ALL TRADES",confirming ? CLR_BAD : CLR_GOLD);
+   HUDButton("CLOSE",UI_L+UI_BAR_W-UI_BTN_W,UI_SMC_H+626,confirming ? "CLICK AGAIN TO CONFIRM" : "CLOSE ALL TRADES",confirming ? CLR_BAD : CLR_GOLD);
 }
 
 void DrawLevels()
@@ -1538,7 +1940,7 @@ void DrawLevels()
       double price=HasFib() ? FibPrice(g_ratios[i]) : 0.0;
       if(price<=0) { ObjectDelete(0,name); continue; }
       if(ObjectFind(0,name)<0) ObjectCreate(0,name,OBJ_HLINE,0,0,price);
-      color ink=(g_ratios[i]<InpEntryZone-1e-9) ? CLR_FIB_OFF : (g_attempted[i] ? CLR_DIM : (i>6 ? CLR_FIB_EXT : CLR_FIB));
+      color ink=(g_ratios[i]<EffEntryZone()-1e-9) ? CLR_FIB_OFF : (g_attempted[i] ? CLR_DIM : (i>6 ? CLR_FIB_EXT : CLR_FIB));
       ObjectSetDouble(0,name,OBJPROP_PRICE,price);
       ObjectSetInteger(0,name,OBJPROP_COLOR,ink);
       ObjectSetInteger(0,name,OBJPROP_STYLE,STYLE_DOT);
@@ -1549,7 +1951,7 @@ void DrawLevels()
    }
    string zone=g_pre+"ZONE";
    if(!HasFib()) { ObjectDelete(0,zone); return; }
-   double price=FibPrice(InpEntryZone);
+   double price=FibPrice(EffEntryZone());
    if(ObjectFind(0,zone)<0) ObjectCreate(0,zone,OBJ_HLINE,0,0,price);
    ObjectSetDouble(0,zone,OBJPROP_PRICE,price);
    ObjectSetInteger(0,zone,OBJPROP_COLOR,CLR_GOLD);
@@ -1557,12 +1959,56 @@ void DrawLevels()
    ObjectSetInteger(0,zone,OBJPROP_SELECTABLE,false);
    ObjectSetInteger(0,zone,OBJPROP_HIDDEN,true);
    ObjectSetInteger(0,zone,OBJPROP_BACK,true);
-   ObjectSetString(0,zone,OBJPROP_TEXT,"ENTRY ZONE "+DoubleToString(InpEntryZone,3));
+   ObjectSetString(0,zone,OBJPROP_TEXT,"ENTRY ZONE "+DoubleToString(EffEntryZone(),3));
+}
+
+void SmcLine(const string name,const double price,const color ink,const string tip)
+{
+   if(price<=0) { ObjectDelete(0,name); return; }
+   if(ObjectFind(0,name)<0) ObjectCreate(0,name,OBJ_HLINE,0,0,price);
+   ObjectSetDouble(0,name,OBJPROP_PRICE,price);
+   ObjectSetInteger(0,name,OBJPROP_COLOR,ink);
+   ObjectSetInteger(0,name,OBJPROP_STYLE,STYLE_DASHDOTDOT);
+   ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
+   ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
+   ObjectSetInteger(0,name,OBJPROP_BACK,true);
+   ObjectSetString(0,name,OBJPROP_TEXT,tip);
+   ObjectSetString(0,name,OBJPROP_TOOLTIP,tip);
+}
+
+// Bias-timeframe swing lines (liquidity) and untouched bullish OB/FVG zones.
+void DrawSmc()
+{
+   if(!g_ui.draw || g_pre=="") return;
+   string prefix=g_pre+"SMC_";
+   if(!InpDrawSmc || !InpUseSmcBias || !g_smc.ready) { ObjectsDeleteAll(0,prefix); return; }
+   SmcLine(prefix+"BSL",g_smc.swingHigh,CLR_GOLD,SmcTfName()+" swing high (buy-side liquidity)");
+   SmcLine(prefix+"SSL",g_smc.swingLow,CLR_NEON,SmcTfName()+" swing low (sell-side liquidity)");
+   datetime right=TimeCurrent()+PeriodSeconds(InpBiasTF)*3;
+   int n=ArraySize(g_zones);
+   for(int z=0;z<SMC_MAX_ZONES;z++)
+   {
+      string name=prefix+"Z"+IntegerToString(z);
+      if(z>=n) { ObjectDelete(0,name); continue; }
+      if(ObjectFind(0,name)<0) ObjectCreate(0,name,OBJ_RECTANGLE,0,g_zones[z].time,g_zones[z].top,right,g_zones[z].bottom);
+      else
+      {
+         ObjectMove(0,name,0,g_zones[z].time,g_zones[z].top);
+         ObjectMove(0,name,1,right,g_zones[z].bottom);
+      }
+      ObjectSetInteger(0,name,OBJPROP_COLOR,g_zones[z].type==ZONE_OB ? CLR_OB_ZONE : CLR_FVG_ZONE);
+      ObjectSetInteger(0,name,OBJPROP_FILL,true);
+      ObjectSetInteger(0,name,OBJPROP_BACK,true);
+      ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
+      ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
+      ObjectSetString(0,name,OBJPROP_TOOLTIP,SmcTfName()+" bullish "+ZoneLabel(z));
+   }
 }
 
 void RefreshUi()
 {
    if(!g_ui.draw) return;
+   DrawSmc();
    DrawLevels();
    DrawDashboard();
    ChartRedraw(0);
@@ -1597,6 +2043,13 @@ string ValidateInputs()
    if(InpFreeMarginReservePercent<0 || InpFreeMarginReservePercent>=100) return "Free margin reserve must be 0-99%";
    if(InpCooldownMinutes<0 || InpCooldownMinutes>1440)  return "Cooldown must be 0-1440 minutes";
    if(InpStartHour<0 || InpStartHour>23 || InpEndHour<1 || InpEndHour>24) return "Hours: start 0-23, end 1-24";
+   if(InpBiasSwingBars<1 || InpBiasSwingBars>10)        return "Swing strength must be 1-10";
+   if(InpBiasBars<100 || InpBiasBars>5000)              return "Bias bars scanned must be 100-5000";
+   if(InpAggRiskMultiplier<1 || InpAggRiskMultiplier>3) return "Bias UP lot multiplier must be 1-3";
+   if(InpAggExtraTrades<0 || InpMaxOpenTrades+InpAggExtraTrades>50) return "Bias UP extra trades: 0 or more, total at most 50";
+   if(InpAggGridFactor<0.1 || InpAggGridFactor>1)       return "Bias UP grid gap factor must be 0.1-1";
+   if(InpAggEntryZone<0 || InpAggEntryZone>4.236)       return "Bias UP entry level must be 0-4.236";
+   if(InpPoiWindowPercent<=0 || InpPoiWindowPercent>100) return "Zone pre-touch window must be above 0 and at most 100%";
    return "";
 }
 
@@ -1608,7 +2061,10 @@ int OnInit()
    ZeroMemory(g_spike);
    ZeroMemory(g_guard);
    ZeroMemory(g_ui);
+   ZeroMemory(g_smc);
    ArrayResize(g_pivots,0);
+   ArrayResize(g_zones,0);
+   ArrayResize(g_zoneUsed,0);
    ArrayInitialize(g_attempted,false);
    g_ui.draw=(!g_tester || MQLInfoInteger(MQL_VISUAL_MODE)!=0);
    g_ui.enabled=(InpShowDashboard && g_ui.draw);
@@ -1664,11 +2120,13 @@ int OnInit()
    RefreshSymbol();
    CheckNewDay();
    UpdateEngine();
+   UpdateSmc();                                          // first build: no bias transition
    ApplyTheme();
    if(g_ui.draw) EventSetMillisecondTimer(TIMER_MS);
    RefreshUi();
 
    Print(EA_DISPLAY," | ",EA_NAME," v",EA_VERSION," by ",EA_AUTHOR," (",EA_BRAND,") on ",_Symbol," ",TfName()," | lot mode ",EnumToString(InpLotMode),
+         " | SMC bias ",(InpUseSmcBias ? SmcTfName()+" "+BiasName(g_smc.bias) : "off"),
          " | basket stop ",DoubleToString(InpBasketStopPercent,1),"% | daily loss ",DoubleToString(InpMaxDailyLossPercent,1),
          "% | ",g_symbolStatus);
    return INIT_SUCCEEDED;
@@ -1693,6 +2151,7 @@ void OnTick()
    int jump=SpikeOnTick(q);
    bool fibReady=UpdateEngine();
    SelectSwing();
+   UpdateSmc();                                          // may bank profitable trades when the bias turns DOWN
    if(fibReady)
    {
       double candleLow=iLow(_Symbol,_Period,0);

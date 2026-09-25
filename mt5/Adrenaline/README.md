@@ -42,6 +42,44 @@ dashboard (`AVG EVERY … ticks`). Every other GainX symbol works too.
 5. **Protection.** The basket stop, the stop-adding level, the daily loss and profit
    limits, the free-margin reserve, the spread filter, the cooldown after a basket
    stop, and the Algo Trading checks.
+6. **SMC bias (H4).** Market structure decides how the EA trades. Bias DOWN = no new
+   trades. Bias UP = aggressive. See the next section.
+
+## SMC bias strategy
+
+The bias comes from **H4 market structure**, calculated from raw candles only (no
+indicators). It uses closed candles only, so it never repaints.
+
+| SMC term | How the EA reads it |
+|---|---|
+| Swing high / low | A candle whose high (low) beats the 3 candles on each side |
+| **BOS** (break of structure) | An H4 candle **closes** beyond the last unbroken swing in the direction of the trend |
+| **CHoCH** (change of character) | The first such close **against** the current bias, meaning the trend has turned |
+| Bias | **UP** after a bullish BOS/CHoCH, **DOWN** after a bearish one, **NEUTRAL** before the first break |
+| Order block (OB) | The last bearish H4 candle between the last swing low and the candle that broke structure up |
+| Fair value gap (FVG) | A 3-candle gap: candle 3's low is above candle 1's high |
+| Premium / discount | Above / below the middle of the dealing range (last swing low → highest high since) |
+
+What each bias does:
+
+| Bias | Trading |
+|---|---|
+| **DOWN** | **No new trades.** When the bias turns DOWN, trades in profit are closed and the rest stay under the basket stop, break-even and trailing. You can change this with `When the bias turns DOWN` |
+| **NEUTRAL** | Normal Adrenaline V3 trading |
+| **UP (aggressive)** | Lot × 1.5, +2 extra open trades, half the grid gap, entries from the first Fibonacci level (0.236), plus an extra BUY just before price touches an **untouched H4 bullish order block or FVG** in the discount half of the range (each zone is traded once) |
+
+"Aggressive" never multiplies the lot after a loss: the ×1.5 comes from the bias, not
+from losing trades, and the basket stop and daily loss limit still apply.
+
+**Keep this in mind on GainX:** the index falls slowly by design between spikes, so
+H4 structure can stay DOWN for long periods, and the EA will not trade during them.
+SMC structure is a filter that decides when to trade. It does not make a random
+index predictable.
+
+Sources: [SMC market structure: BoS and CHoCH](https://dailypriceaction.com/blog/smc-market-structure/),
+[OB and FVG confirmation model](https://acy.com/en/market-news/education/confirmation-model-ob-fvg-liquidity-sweep-j-o-20251112-094218/),
+[What is daily bias in SMC](https://3commas.io/blog/what-is-daily-bias-in-smart-money-concepts),
+[SMC core principles](https://www.strike.money/technical-analysis/smart-money-concepts).
 
 Following your choice, there is **no stop-loss per trade that can close at a loss**. The
 basket stop and the daily loss limit are what cap losses. Break-even and trailing stops
@@ -85,6 +123,18 @@ WebRequest for listed URL**. Never paste your token into chats or code.
 | | Spike sensitivity | 8 | Raise it if `SPIKES SEEN` counts normal ticks; lower it if real spikes are missed |
 | | Warm-up ticks | 20000 | History ticks used to learn the symbol (0 = learn from 300 live ticks) |
 | | Maximum spread | 0 = auto | Auto = 15 % of the 14-bar average range |
+| SMC bias | Use SMC bias | true | Off = trade exactly like before (no bias filter) |
+| | Bias timeframe | H4 | Timeframe whose structure sets the bias |
+| | Swing strength | 3 | Candles on each side that make a swing high/low |
+| | Bias bars scanned | 500 | H4 history used to rebuild the structure every new H4 candle |
+| | When the bias turns DOWN | Close trades in profit | `Keep open trades`, `Close trades in profit`, or `Close all trades` |
+| | Bias UP: lot multiplier | 1.5 | Bigger lot while the bias is UP (still capped by Maximum lot) |
+| | Bias UP: extra open trades | 2 | Added to Maximum open BUY trades |
+| | Bias UP: grid gap factor | 0.5 | 0.5 = half the normal grid gap |
+| | Bias UP: buy from this Fib level | 0.236 | First Fibonacci level allowed while aggressive |
+| | Bias UP: order blocks / FVGs | true | Extra BUYs at untouched H4 bullish OB/FVG zones in discount |
+| | Zone pre-touch window | 10 % | How close above a zone the BUY fires (% of the average H4 candle range) |
+| | Draw bias swings and zones | true | H4 swing lines (liquidity) and OB/FVG boxes on the chart |
 | Exit | When a spike prints | Bank basket | `Bank basket`, `Partial + break-even`, or `Hold` |
 | | Partial close % | 50 | Share of each profitable trade closed on a spike. Trades too small to split are closed in full |
 | | Break-even trigger | 0 = auto | Auto = one average bar range. −1 = off |
@@ -106,15 +156,19 @@ WebRequest for listed URL**. Never paste your token into chats or code.
 
 - **Status bar.** The light pulses when FX is on, and the colour shows the state: neon =
   scanning, green = basket active, gold = paused or target hit, red = blocked.
-- **01 Spike engine.** The spike threshold, the normal tick size, spikes seen, the
+- **01 SMC bias.** Bias UP / DOWN / NEUTRAL, the trading mode (AGGRESSIVE / NORMAL /
+  NO TRADE), the last BOS or CHoCH with its time, how many untouched OB/FVG zones
+  there are (hover to see the nearest one), and where price sits in the H4 range
+  (premium or discount).
+- **02 Spike engine.** The spike threshold, the normal tick size, spikes seen, the
   average interval, the last spike, and ticks since the last spike. The
   interval-based numbers are information only; they do not predict the next spike.
-- **02 Fibonacci.** Whether the levels come from the last spike or chart pivots,
+- **03 Fibonacci.** Whether the levels come from the last spike or chart pivots,
   the swing low and high, the current retracement bar with the gold entry-zone
   marker, and the next level that can trigger.
-- **03 Basket.** Open trades, lots, floating P/L, the lowest entry, how many trades
+- **04 Basket.** Open trades, lots, floating P/L, the lowest entry, how many trades
   are protected in profit, the basket-stop amount, and the next lot size.
-- **04 Risk guard.** Balance, equity, today's P/L against the daily limit, spread
+- **05 Risk guard.** Balance, equity, today's P/L against the daily limit, spread
   against its limit, and cooldown or halt state.
 - **Buttons.** `PAUSE NEW ENTRIES` (open trades are still managed) and `CLOSE ALL TRADES`,
   which needs a second click within 5 seconds to confirm.
@@ -146,7 +200,9 @@ volume-limit check, the dark chart theme, and the pause button.
 2. Deposit the size you will really trade, with the same leverage as your account.
 3. Test at least a few weeks, as far as the MaxGainX history allows (it has existed
    since 18 Aug 2026). Then forward-test on demo.
-4. Run once in **visual mode** to check the dashboard, the spike arrows and the Fibonacci lines.
+4. Run once in **visual mode** to check the dashboard, the spike arrows, the Fibonacci
+   lines, and the H4 swing lines and OB/FVG boxes. Check that no BUY opens while the
+   bias is DOWN.
 5. Judge the result by **equity drawdown** and the **largest loss**, not the win rate. A
    basket strategy can win for weeks and then give it back in one basket stop.
 6. Optimisation criterion: **Custom max**. `OnTester` returns profit × profit factor ÷
@@ -162,6 +218,8 @@ Useful ranges to optimise, a few at a time:
 | Pre-touch window % | 2 – 8 |
 | Basket stop % | 3 – 8 |
 | Maximum open BUY trades | 3 – 7 |
+| Swing strength | 2 – 5 |
+| Bias UP: lot multiplier | 1.0 – 2.0 |
 
 Prefer settings that stay profitable across a whole range of values over one "best" value.
 Always re-check the winning settings on a period the optimiser didn't see
