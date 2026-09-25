@@ -1,4 +1,4 @@
-# MaxGainX Spike Hunter v8.00
+# MaxGainX Spike Hunter v8.10
 
 BUY-only Expert Advisor for **Weltrade SyntX MaxGainX 2000** (MetaTrader 5), rebuilt
 from the v7 "FLIPPER / ASTRA" Fibonacci grid. Author credit: Monetraaa / Sirojiddin Sobitov.
@@ -23,14 +23,16 @@ dashboard (`AVG EVERY … ticks`). Every other GainX symbol works too.
    and learns the normal tick size. An UP tick at least `Spike sensitivity` times
    larger than normal counts as a spike. If large DOWN jumps dominate instead
    (a PainX-type feed), entries are blocked.
-2. **Fibonacci zone** (your v7 engine). The last confirmed swing, from swing low to
-   spike high, is split into 11 Fibonacci levels. A BUY is only allowed at or below
-   the `Entry zone` (0.5 = the discount half). It triggers just **before** price
-   touches a level, while price is falling, and only if that level hasn't been
-   touched earlier in the same candle.
-3. **Basket.** Up to `Maximum open BUY trades` positions. Each new BUY must be at
-   least `Grid gap %` of the swing below the lowest open BUY. **Lots never multiply**:
-   the v7 ×1.5 ladder is gone.
+2. **A new Fibonacci on every spike.** Each spike draws fresh levels from the
+   spike base to the spike top. As price drifts back down, a BUY opens just
+   **before** price touches a level, starting with the first one (0.236). The
+   level must not have been touched since the spike, and price must be falling.
+   So a position is already open when the next spike comes. Until the EA has seen
+   its first spike, it uses your v7 chart-pivot Fibonacci instead.
+3. **Basket.** Up to `Maximum open BUY trades` positions. The first BUY of every
+   new spike is always allowed, even with older trades still open lower down.
+   Extra BUYs on the same spike must be at least `Grid gap %` below the lowest
+   open BUY. **Lots never multiply**: the v7 ×1.5 ladder is gone.
 4. **Spike banking.** When a spike prints and the basket is in net profit, the whole
    basket is closed. Otherwise, each profitable trade is partly closed and the rest is
    moved to break-even.
@@ -71,9 +73,11 @@ WebRequest for listed URL**. Never paste your token into chats or code.
 | | Maximum open BUY trades | 5 | Basket size |
 | | Magic number | 20260818 | Use a different number on every chart |
 | | Trade only symbols containing | GainX | Safety check against attaching to the wrong chart. Leave empty to allow any symbol |
-| Entry | Entry zone | 0.5 | Buy only at/below this retracement (0.618 = deeper and fewer trades) |
+| Entry | Draw Fibonacci on | Every spike | `Every spike` (base → top of the last spike) or `Confirmed chart pivots` (v7 behaviour) |
+| | Entry zone | 0.236 | First level that may trigger. 0.236 = right after each spike; 0.5 or 0.618 = deeper, fewer trades |
 | | Pre-touch window | 5 % | How close above a level (as % of the swing) the entry fires |
 | | Grid gap | 10 % | Minimum distance below the lowest open BUY |
+| | First BUY of every new spike | true | The first trade after each spike ignores the grid gap, so every spike gets a position |
 | | Spike sensitivity | 8 | Raise it if `SPIKES SEEN` counts normal ticks; lower it if real spikes are missed |
 | | Warm-up ticks | 20000 | History ticks used to learn the symbol (0 = learn from 300 live ticks) |
 | | Maximum spread | 0 = auto | Auto = 15 % of the 14-bar average range |
@@ -101,8 +105,9 @@ WebRequest for listed URL**. Never paste your token into chats or code.
 - **01 Spike engine.** The spike threshold, the normal tick size, spikes seen, the
   average interval, the last spike, and ticks since the last spike. The
   interval-based numbers are information only; they do not predict the next spike.
-- **02 Fibonacci zone.** The swing low and high, the current retracement bar with the
-  gold entry-zone marker, and the next level that can trigger.
+- **02 Fibonacci.** Whether the levels come from the last spike or chart pivots,
+  the swing low and high, the current retracement bar with the gold entry-zone
+  marker, and the next level that can trigger.
 - **03 Basket.** Open trades, lots, floating P/L, the lowest entry, how many trades
   are protected in profit, the basket-stop amount, and the next lot size.
 - **04 Risk guard.** Balance, equity, today's P/L against the daily limit, spread
@@ -118,7 +123,8 @@ WebRequest for listed URL**. Never paste your token into chats or code.
 | No stop at all, only profit trailing | Basket stop, stop-adding level, daily loss/profit limits, cooldown |
 | 20 BUYs allowed | 5 by default |
 | `CountBuys()` computed the lowest entry but never used it, so BUYs could stack at almost the same price | Grid gap below the lowest BUY is enforced |
-| Any Fibonacci level could trigger, including the 0 / 0.236 premium levels | Only the discount zone (≥ Entry zone) |
+| Any Fibonacci level could trigger, including the 0 level (the swing top) | Only levels at or below the Entry zone (0.236 by default) |
+| Fibonacci only from chart pivots, confirmed 3 candles late | v8.10: a new Fibonacci from every spike, with a BUY before the first level is touched |
 | No spike awareness | Tick spike engine, spike banking, and a direction safety check |
 | Dashboard fully rebuilt on every tick | Redrawn on a 500 ms timer and skipped entirely in non-visual testing |
 | `#property strict` (an MQL4 leftover) | Removed |
@@ -145,7 +151,7 @@ Useful ranges to optimise, a few at a time:
 
 | Input | Range |
 |---|---|
-| Entry zone | 0.5 – 0.786 |
+| Entry zone | 0.236 – 0.618 |
 | Spike sensitivity | 6 – 14 |
 | Grid gap % | 5 – 20 |
 | Pre-touch window % | 2 – 8 |

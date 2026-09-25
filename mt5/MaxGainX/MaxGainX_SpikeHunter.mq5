@@ -15,11 +15,14 @@
 //   1. Spike engine   - learns the normal tick size from recent history ticks
 //                       and flags an UP tick InpSpikeSensitivity times larger
 //                       as a spike. No built-in indicators are used.
-//   2. Fibonacci zone - the v7 swing engine anchors the last swing (low ->
-//                       spike high). BUYs are taken only at or below
-//                       InpEntryZone (0.5 = discount), just before price
-//                       touches a Fibonacci level.
-//   3. Basket         - up to InpMaxOpenTrades BUYs, each new one at least
+//   2. Fibonacci      - every spike draws a new Fibonacci (spike base ->
+//                       spike top). As price drifts back down, a BUY opens
+//                       just BEFORE price touches a level at or below
+//                       InpEntryZone (0.236 = first level), so a position is
+//                       already open when the next spike comes. Until the
+//                       first spike is seen, the v7 chart-pivot swing is used.
+//   3. Basket         - up to InpMaxOpenTrades BUYs. The first BUY of every
+//                       new spike is always allowed; further BUYs must be
 //                       InpGridGapPercent of the swing below the lowest open
 //                       BUY. Lots never multiply (the v7 x1.5 ladder is gone).
 //   4. Spike banking  - when a spike prints, the basket is closed if it is in
@@ -38,9 +41,9 @@
 // Requirements: MT5 HEDGING account, Algo Trading enabled. No DLLs.
 //
 #property copyright   "Monetraaa / Sirojiddin Sobitov"
-#property version     "8.00"
+#property version     "8.10"
 #property description "MAXGAINX SPIKE HUNTER - BUY-only spike EA for Weltrade MaxGainX 2000 (GainX family)."
-#property description "Fibonacci discount-zone entries, tick spike engine, basket and daily protection."
+#property description "New Fibonacci on every spike, BUY before a level is touched, basket and daily protection."
 #property description "Hedging accounts only. No EA can guarantee zero losses - test on demo first."
 
 #include <Trade\Trade.mqh>
@@ -61,6 +64,12 @@ enum ENUM_SPIKE_ACTION
    SPIKE_HOLD        = 2  // Hold (break-even and trailing only)
 };
 
+enum ENUM_FIB_ANCHOR
+{
+   FIB_SPIKE = 0,         // Every spike (spike base -> spike top)
+   FIB_PIVOT = 1          // Confirmed chart pivots (v7)
+};
+
 input group "=== 1. MAIN ==="
 input ENUM_LOT_MODE     InpLotMode                  = LOT_RISK_PERCENT;  // Lot mode
 input double            InpRiskPercent              = 1.0;               // Risk % per trade (loss if price falls one full swing)
@@ -72,9 +81,11 @@ input ulong             InpMagic                    = 20260818;          // Magi
 input string            InpSymbolKeyword            = "GainX";           // Trade only symbols containing this text (empty = any)
 
 input group "=== 2. ENTRY: FIBONACCI ZONE + SPIKE ENGINE ==="
-input double            InpEntryZone                = 0.5;               // Buy only at/below this Fib retracement (0.5 = discount)
+input ENUM_FIB_ANCHOR   InpFibAnchor                = FIB_SPIKE;         // Draw Fibonacci on
+input double            InpEntryZone                = 0.236;             // Buy only at/below this Fib level (0.236 = first level)
 input double            InpBeforeTouchPercent       = 5.0;               // Pre-touch window above a Fib level (% of swing)
 input double            InpGridGapPercent           = 10.0;              // Min gap below the lowest open BUY (% of swing)
+input bool              InpTradeEverySpike          = true;              // First BUY of every new spike ignores the grid gap
 input double            InpSpikeSensitivity         = 8.0;               // Spike = UP tick at least X times the normal tick
 input int               InpWarmupTicks              = 20000;             // History ticks used to learn the symbol (0 = live only)
 input int               InpMaxSpreadPoints          = 0;                 // Maximum spread in points (0 = auto)
@@ -121,7 +132,7 @@ input bool              InpVerboseLog               = false;             // Deta
 //| CONFIG - constants                                               |
 //+------------------------------------------------------------------+
 #define EA_NAME          "MAXGAINX SPIKE HUNTER"
-#define EA_VERSION       "8.00"
+#define EA_VERSION       "8.10"
 #define EA_TAG           "MGX8"
 #define FIB_LEVELS       11
 #define FIB_DEPTH        3          // bars on each side of a confirmed pivot
@@ -197,14 +208,20 @@ struct SFib
    bool     ready;
    datetime processed;     // last closed bar fed to the pivot engine
    datetime lastBar;       // open time of the forming bar
-   datetime lowTime;       // current swing anchors
+   datetime lowTime;       // active swing anchors (spike or pivot)
    datetime highTime;
    datetime keyLow;        // swing the level reservations belong to
    datetime keyHigh;
+   datetime pivLowTime;    // last confirmed chart-pivot swing (v7 engine)
+   datetime pivHighTime;
    double   low;
    double   high;
+   double   pivLow;
+   double   pivHigh;
    double   atr;           // manual 14-bar true-range average
    double   barMin;        // lowest price of the forming bar
+   bool     fromSpike;     // active swing comes from the last spike
+   bool     swingTraded;   // a BUY was already opened on the active swing
 };
 
 struct SSpike
@@ -226,6 +243,13 @@ struct SSpike
    double   avgInterval;   // average ticks between spikes
    double   lastSize;
    datetime lastTime;
+   bool     swingOpen;     // spike still extending upward
+   double   cycleLow;      // lowest bid since the last spike top
+   datetime cycleLowTime;
+   double   swingLow;      // last spike: base ...
+   double   swingHigh;     // ... and top
+   datetime swingLowTime;
+   datetime swingHighTime;
 };
 
 struct SGuard
@@ -482,8 +506,8 @@ void ProcessFibBar(const MqlRates &r[],const int closedIndex)
    if(high && n>=2 && g_pivots[n-2].direction==-1 && g_pivots[n-1].direction==1 &&
       g_pivots[n-1].time==r[p].time && g_pivots[n-1].price>g_pivots[n-2].price)
    {
-      g_fib.low=g_pivots[n-2].price;  g_fib.lowTime=g_pivots[n-2].time;
-      g_fib.high=g_pivots[n-1].price; g_fib.highTime=g_pivots[n-1].time;
+      g_fib.pivLow=g_pivots[n-2].price;  g_fib.pivLowTime=g_pivots[n-2].time;
+      g_fib.pivHigh=g_pivots[n-1].price; g_fib.pivHighTime=g_pivots[n-1].time;
    }
 }
 
@@ -515,7 +539,7 @@ bool UpdateEngine()
    if(g_fib.processed==0)
    {
       ArrayResize(g_pivots,0);
-      g_fib.low=0; g_fib.high=0; g_fib.lowTime=0; g_fib.highTime=0;
+      g_fib.pivLow=0; g_fib.pivHigh=0; g_fib.pivLowTime=0; g_fib.pivHighTime=0;
    }
    for(int i=start;i<n-1;i++) ProcessFibBar(g_rates,i);
 
@@ -529,18 +553,35 @@ bool UpdateEngine()
    g_fib.lastBar=g_rates[n-1].time;
    g_fib.barMin=g_rates[n-1].low;
    g_fib.ready=true;
-
-   if(g_fib.keyLow!=g_fib.lowTime || g_fib.keyHigh!=g_fib.highTime)
-   {
-      g_fib.keyLow=g_fib.lowTime;
-      g_fib.keyHigh=g_fib.highTime;
-      ArrayInitialize(g_attempted,false);
-      for(int i=0;i<FIB_LEVELS;i++)
-         if(!g_tester && GlobalVariableCheck(LevelKey(i))) g_attempted[i]=true;
-      if(HasFib()) Debug("New swing "+Px(g_fib.low)+" -> "+Px(g_fib.high));
-   }
+   SelectSwing();
    return true;
 }
+
+// Chooses the swing the Fibonacci levels are drawn on: the last spike (base
+// -> top) when that mode is on and a spike has been seen, else the v7 pivot
+// swing. A new swing clears the used-level flags (restored from terminal
+// global variables after a restart).
+void SelectSwing()
+{
+   bool spike=(InpFibAnchor==FIB_SPIKE && g_spike.swingLow>0 && g_spike.swingHigh>g_spike.swingLow);
+   g_fib.fromSpike=spike;
+   g_fib.low     =spike ? g_spike.swingLow      : g_fib.pivLow;
+   g_fib.high    =spike ? g_spike.swingHigh     : g_fib.pivHigh;
+   g_fib.lowTime =spike ? g_spike.swingLowTime  : g_fib.pivLowTime;
+   g_fib.highTime=spike ? g_spike.swingHighTime : g_fib.pivHighTime;
+   if(g_fib.keyLow==g_fib.lowTime && g_fib.keyHigh==g_fib.highTime) return;
+   g_fib.keyLow=g_fib.lowTime;
+   g_fib.keyHigh=g_fib.highTime;
+   g_fib.swingTraded=false;
+   ArrayInitialize(g_attempted,false);
+   for(int i=0;i<FIB_LEVELS;i++)
+      if(!g_tester && GlobalVariableCheck(LevelKey(i))) g_attempted[i]=true;
+   if(HasFib()) Debug("New "+(spike ? "spike" : "pivot")+" swing "+Px(g_fib.low)+" -> "+Px(g_fib.high));
+}
+
+// "Not touched yet" reference: on a spike swing, the lowest price since the
+// spike top; on a pivot swing, the low of the forming candle (v7 rule).
+double TouchFloor() { return g_fib.fromSpike ? g_spike.cycleLow : g_fib.barMin; }
 
 // A used level is re-armed only after price has clearly moved back above it
 // (1.5x the pre-touch window), so boundary noise cannot repeat an entry.
@@ -622,10 +663,21 @@ int SpikeFeed(const double delta,const datetime when,const double basePrice)
    double size=MathAbs(delta);
    if(size<g_point*0.5) return 0;                  // bid unchanged (ask-only update)
    g_spike.ticks++;
-   if(g_spike.avgTick<=0) { g_spike.avgTick=size; return 0; }
+   double price=basePrice+delta;
+   if(g_spike.avgTick<=0) { g_spike.avgTick=size; TrackCycle(delta,price,when); return 0; }
    double threshold=SpikeThreshold();
    if(delta>=threshold)
    {
+      // New Fibonacci swing: base = lowest price since the previous spike
+      // (normally the price just before this one), top = this spike.
+      bool lowerBefore=(g_spike.cycleLow>0 && g_spike.cycleLow<basePrice);
+      g_spike.swingLow     =lowerBefore ? g_spike.cycleLow : basePrice;
+      g_spike.swingLowTime =lowerBefore ? g_spike.cycleLowTime : when;
+      g_spike.swingHigh    =price;
+      g_spike.swingHighTime=when;
+      g_spike.swingOpen    =true;
+      g_spike.cycleLow     =price;
+      g_spike.cycleLowTime =when;
       if(g_spike.lastSpikeTick>0)
       {
          double interval=(double)(g_spike.ticks-g_spike.lastSpikeTick);
@@ -640,9 +692,29 @@ int SpikeFeed(const double delta,const datetime when,const double basePrice)
       MarkSpike(when,basePrice);
       return 1;
    }
+   bool extending=TrackCycle(delta,price,when);
    if(-delta>=threshold) { g_spike.downJumps++; return -1; }
-   g_spike.avgTick+=(size-g_spike.avgTick)/TICK_EWMA;
+   if(!extending) g_spike.avgTick+=(size-g_spike.avgTick)/TICK_EWMA;   // spike tails stay out of the average
    return 0;
+}
+
+// A spike can take several up ticks: the top keeps rising until the first
+// down tick. The cycle low is the lowest price since that top.
+bool TrackCycle(const double delta,const double price,const datetime when)
+{
+   if(g_spike.swingOpen)
+   {
+      if(delta>0 && price>g_spike.swingHigh)
+      {
+         g_spike.swingHigh=price;
+         g_spike.cycleLow=price;
+         g_spike.cycleLowTime=when;
+         return true;
+      }
+      if(delta<0) g_spike.swingOpen=false;
+   }
+   if(g_spike.cycleLow<=0 || price<g_spike.cycleLow) { g_spike.cycleLow=price; g_spike.cycleLowTime=when; }
+   return false;
 }
 
 // Learns the symbol from recent history ticks. The median move seeds the
@@ -743,7 +815,7 @@ double LossPerLot(const double distance)
 // RiskPercent = equity lost if price falls the whole last swing after entry.
 double RiskDistance()
 {
-   double range=FibRange();
+   double range=MathMax(FibRange(),g_spike.avgSize);
    return range>0 ? range : g_fib.atr*10.0;
 }
 
@@ -1170,9 +1242,13 @@ void TryBuy(const MqlTick &q,const SBasket &b,const int jump)
 
    // The v7 grid never used the lowest open price, so BUYs could stack at
    // almost the same price. Each new BUY must now be clearly lower.
+   // The first BUY of every new spike is allowed anywhere (InpTradeEverySpike);
+   // later BUYs on the same spike must respect the grid gap.
    double range=FibRange(),window=range*InpBeforeTouchPercent/100.0;
-   if(b.count>0 && q.ask>b.lowest-range*InpGridGapPercent/100.0)
+   bool spikeTrade=(InpTradeEverySpike && g_fib.fromSpike && !g_fib.swingTraded);
+   if(b.count>0 && !spikeTrade && q.ask>b.lowest-range*InpGridGapPercent/100.0)
    { g_note="Waiting for the grid gap below the lowest BUY "+Px(b.lowest); return; }
+   double untouched=TouchFloor();
 
    int selected=-1;
    double nearest=DBL_MAX;
@@ -1180,9 +1256,10 @@ void TryBuy(const MqlTick &q,const SBasket &b,const int jump)
    {
       if(g_attempted[i] || g_ratios[i]<InpEntryZone-1e-9) continue;
       double level=FibPrice(g_ratios[i]),gap=q.bid-level;
-      // Pre-touch: price is falling toward the level, has not touched it in
-      // the forming candle yet, and is inside the window just above it.
-      if(level>0 && gap>0 && gap<=window && g_fib.barMin>level && gap<nearest) { selected=i; nearest=gap; }
+      // Pre-touch: price is falling toward the level, has not touched it yet
+      // (since the spike, or in this candle on a pivot swing) and is inside
+      // the window just above it.
+      if(level>0 && gap>0 && gap<=window && untouched>level && gap<nearest) { selected=i; nearest=gap; }
    }
    if(selected<0)
    {
@@ -1226,6 +1303,7 @@ void TryBuy(const MqlTick &q,const SBasket &b,const int jump)
    }
    if(done)
    {
+      g_fib.swingTraded=true;
       g_note="BUY "+Lots(volume)+" lots at Fib "+ratio;
       Notify("BUY "+Lots(volume)+" lots @ "+Px(g_trade.ResultPrice())+" | Fib "+ratio+
              (g_minLotUsed ? " | broker minimum lot (above risk %)" : ""),MSG_TRADE);
@@ -1368,7 +1446,7 @@ void DrawDashboard()
    HUDBox("BASE",UI_X,UI_Y,UI_W,UI_H,CLR_PANEL,CLR_EDGE);
    HUDBox("STRIPE",UI_X,UI_Y,UI_W,3,accent,accent);
    HUDText("BRAND",UI_L,40,EA_NAME,CLR_GOLD,15);
-   HUDText("SUB",UI_L,68,"v"+EA_VERSION+"  /  BUY SPIKE  /  FIB ZONE  /  BASKET GUARD",CLR_MUTED,8);
+   HUDText("SUB",UI_L,68,"v"+EA_VERSION+"  /  BUY BEFORE SPIKE  /  FIB PRE-TOUCH  /  BASKET GUARD",CLR_MUTED,8);
    HUDText("SYM",UI_L,88,HUDShort(_Symbol+"  "+TfName()+"  HEDGING  MAGIC "+IntegerToString((long)InpMagic),48),CLR_NEON,9);
    HUDBox("STATUS_BG",UI_L,110,UI_BAR_W,38,CLR_CARD,CLR_EDGE);
    HUDBox("LIGHT",UI_L+12,124,10,10,(InpEnableFX && g_ui.pulse) ? CLR_DIM : accent,accent);
@@ -1388,15 +1466,15 @@ void DrawDashboard()
 
    // 02 Fibonacci zone
    HUDBox("RULE1",UI_L,266,UI_BAR_W,1,CLR_EDGE,CLR_EDGE);
-   HUDText("S2",UI_L,276,"02 / FIBONACCI ZONE",CLR_MUTED,9);
+   HUDText("S2",UI_L,276,"02 / FIBONACCI  ("+(g_fib.fromSpike ? "LAST SPIKE" : "CHART PIVOTS")+")",CLR_MUTED,9);
    HUDText("S2A",UI_L,298,"SWING LOW  "+Px(g_fib.low),CLR_NEON);
    HUDText("S2B",UI_R,298,"SWING HIGH  "+Px(g_fib.high),CLR_NEON);
    double retr=(quoted && HasFib()) ? Retracement(q.bid) : 0.0;
-   bool discount=(HasFib() && retr>=InpEntryZone);
-   string zone=!HasFib() ? "--" : DoubleToString(retr*100.0,1)+"%  "+(discount ? "DISCOUNT" : "PREMIUM");
-   HUDText("S2C",UI_L,318,"RETRACE  "+zone,discount ? CLR_GOOD : CLR_TEXT);
+   bool inZone=(HasFib() && retr>=InpEntryZone);
+   string zone=!HasFib() ? "--" : DoubleToString(retr*100.0,1)+"%  "+(inZone ? "IN ZONE" : "ABOVE ZONE");
+   HUDText("S2C",UI_L,318,"RETRACE  "+zone,inZone ? CLR_GOOD : CLR_TEXT);
    HUDText("S2D",UI_R,318,"ENTRY FROM  "+DoubleToString(InpEntryZone*100.0,1)+"%",CLR_GOLD);
-   HUDBar("S2BAR",340,retr,discount ? CLR_GOOD : CLR_NEON);
+   HUDBar("S2BAR",340,retr,inZone ? CLR_GOOD : CLR_NEON);
    int zoneX=UI_L+(int)MathRound(UI_BAR_W*MathMin(1.0,InpEntryZone));
    HUDBox("S2MARK",MathMin(zoneX,UI_L+UI_BAR_W-2),336,2,14,CLR_GOLD,CLR_GOLD);
    HUDText("S2E",UI_L,356,"NEXT LEVEL  "+(quoted ? NextLevelText(q.bid) : "--"),CLR_TEXT);
@@ -1609,6 +1687,7 @@ void OnTick()
 
    int jump=SpikeOnTick(q);
    bool fibReady=UpdateEngine();
+   SelectSwing();
    if(fibReady)
    {
       double candleLow=iLow(_Symbol,_Period,0);
@@ -1634,6 +1713,7 @@ void OnTimer()
    if(beat%2==0) Housekeeping();                         // once a second, even without ticks
    if(g_ui.confirmUntil>0 && GetTickCount64()>g_ui.confirmUntil) g_ui.confirmUntil=0;
    g_ui.pulse=InpEnableFX ? !g_ui.pulse : false;
+   SelectSwing();
    RefreshUi();
 }
 
