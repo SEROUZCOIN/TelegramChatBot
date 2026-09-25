@@ -1,7 +1,7 @@
 //+------------------------------------------------------------------+
-//|                                        MaxGainX_SpikeHunter.mq5  |
-//|             MAXGAINX SPIKE HUNTER v8.00 for Weltrade SyntX        |
-//|                         Monetraaa / Sirojiddin Sobitov            |
+//|                                               Adrenaline_V3.mq5  |
+//|        ADRENALINE V3 - spike EA for Weltrade SyntX MaxGainX 2000  |
+//|           Creator: Sirojiddin Sobitov  |  Brand: Serro Deriv !!   |
 //+------------------------------------------------------------------+
 //
 // Instrument
@@ -40,9 +40,9 @@
 //
 // Requirements: MT5 HEDGING account, Algo Trading enabled. No DLLs.
 //
-#property copyright   "Monetraaa / Sirojiddin Sobitov"
-#property version     "8.10"
-#property description "MAXGAINX SPIKE HUNTER - BUY-only spike EA for Weltrade MaxGainX 2000 (GainX family)."
+#property copyright   "Sirojiddin Sobitov | Serro Deriv !!"
+#property version     "3.00"
+#property description "ADRENALINE V3 by Sirojiddin Sobitov (Serro Deriv !!) - BUY-only spike EA for Weltrade MaxGainX 2000."
 #property description "New Fibonacci on every spike, BUY before a level is touched, basket and daily protection."
 #property description "Hedging accounts only. No EA can guarantee zero losses - test on demo first."
 
@@ -79,6 +79,7 @@ input bool              InpAllowMinLot              = true;              // Use 
 input int               InpMaxOpenTrades            = 5;                 // Maximum open BUY trades (basket size)
 input ulong             InpMagic                    = 20260818;          // Magic number (unique per chart)
 input string            InpSymbolKeyword            = "GainX";           // Trade only symbols containing this text (empty = any)
+input string            InpTradeComment             = "Adrenaline Open V3"; // Trade comment (max 31 characters)
 
 input group "=== 2. ENTRY: FIBONACCI ZONE + SPIKE ENGINE ==="
 input ENUM_FIB_ANCHOR   InpFibAnchor                = FIB_SPIKE;         // Draw Fibonacci on
@@ -131,9 +132,12 @@ input bool              InpVerboseLog               = false;             // Deta
 //+------------------------------------------------------------------+
 //| CONFIG - constants                                               |
 //+------------------------------------------------------------------+
-#define EA_NAME          "MAXGAINX SPIKE HUNTER"
-#define EA_VERSION       "8.10"
-#define EA_TAG           "MGX8"
+#define EA_NAME          "ADRENALINE V3"
+#define EA_DISPLAY       "Adrenaline V3"      // name used in logs and alerts
+#define EA_VERSION       "3.00"
+#define EA_AUTHOR        "Sirojiddin Sobitov"
+#define EA_BRAND         "Serro Deriv !!"
+#define EA_TAG           "ADRV3"              // prefix of terminal global variables
 #define FIB_LEVELS       11
 #define FIB_DEPTH        3          // bars on each side of a confirmed pivot
 #define FIB_MAX_PIVOTS   32
@@ -336,7 +340,7 @@ string Lots(const double volume)   { return DoubleToString(volume,g_volDigits); 
 string TfName()                    { return StringSubstr(EnumToString((ENUM_TIMEFRAMES)_Period),7); }
 string DateKey(const datetime day) { return TimeToString(day,TIME_DATE); }
 datetime DayOf(const datetime t)   { return (datetime)(((long)t/86400)*86400); }
-void Debug(const string text)      { if(InpVerboseLog) Print(EA_TAG," | ",text); }
+void Debug(const string text)      { if(InpVerboseLog) Print(EA_DISPLAY," | ",text); }
 
 string Ago(const datetime t)
 {
@@ -747,7 +751,7 @@ bool SpikeWarmup()
    g_spike.prevBid=ticks[n-1].bid;
    g_spike.warmed=true;
    CheckSpikeDirection();
-   Print(EA_TAG," | Learned ",n," ticks: normal tick ",Pt(g_spike.avgTick)," pt, spike threshold ",Pt(SpikeThreshold()),
+   Print(EA_DISPLAY," | Learned ",n," ticks: normal tick ",Pt(g_spike.avgTick)," pt, spike threshold ",Pt(SpikeThreshold()),
          " pt, spikes ",g_spike.spikes,", avg every ",DoubleToString(g_spike.avgInterval,0)," ticks");
    return true;
 }
@@ -767,7 +771,7 @@ int SpikeOnTick(const MqlTick &q)
       if(historyDone && g_spike.liveTicks>=LIVE_WARMUP)
       {
          g_spike.warmed=true;
-         Print(EA_TAG," | Learned from ",g_spike.liveTicks," live ticks: spike threshold ",Pt(SpikeThreshold())," pt");
+         Print(EA_DISPLAY," | Learned from ",g_spike.liveTicks," live ticks: spike threshold ",Pt(SpikeThreshold())," pt");
       }
    }
    return jump;
@@ -999,17 +1003,17 @@ void SendTelegram(const string text)
       int err=GetLastError();
       if(err==4014)
       {
-         Print(EA_TAG," | Telegram disabled: add https://api.telegram.org to Tools > Options > Expert Advisors > Allow WebRequest.");
+         Print(EA_DISPLAY," | Telegram disabled: add https://api.telegram.org to Tools > Options > Expert Advisors > Allow WebRequest.");
          g_telegramOn=false;
       }
-      else Print(EA_TAG," | Telegram WebRequest failed, error ",err);
+      else Print(EA_DISPLAY," | Telegram WebRequest failed, error ",err);
    }
-   else if(status!=200) Print(EA_TAG," | Telegram HTTP ",status,": ",CharArrayToString(result));
+   else if(status!=200) Print(EA_DISPLAY," | Telegram HTTP ",status,": ",CharArrayToString(result));
 }
 
 void Notify(const string text,const ENUM_MSG_LEVEL level)
 {
-   string msg=_Symbol+" | "+EA_TAG+" | "+text;
+   string msg=_Symbol+" | "+EA_DISPLAY+" | "+text;
    Print(msg);
    if(g_tester || level==MSG_LOG) return;
    ulong now=GetTickCount64();
@@ -1038,7 +1042,7 @@ bool ClosePosition(const ulong ticket)
       if(!PositionSelectByTicket(ticket)) return true;     // already closed (e.g. stop hit)
       if(!IsRetryable(rc))
       {
-         Print(EA_TAG," | Close #",ticket," failed: ",rc," ",g_trade.ResultRetcodeDescription());
+         Print(EA_DISPLAY," | Close #",ticket," failed: ",rc," ",g_trade.ResultRetcodeDescription());
          return false;
       }
    }
@@ -1055,7 +1059,7 @@ bool ClosePartial(const ulong ticket,const double volume)
       if(!PositionSelectByTicket(ticket)) return false;
       if(!IsRetryable(rc))
       {
-         Print(EA_TAG," | Partial close #",ticket," failed: ",rc," ",g_trade.ResultRetcodeDescription());
+         Print(EA_DISPLAY," | Partial close #",ticket," failed: ",rc," ",g_trade.ResultRetcodeDescription());
          return false;
       }
    }
@@ -1296,7 +1300,7 @@ void TryBuy(const MqlTick &q,const SBasket &b,const int jump)
    uint rc=0;
    for(int attempt=0;attempt<TRADE_RETRIES && !done;attempt++)
    {
-      bool sent=g_trade.Buy(volume,_Symbol,0.0,sl,0.0,EA_TAG+":F"+ratio);
+      bool sent=g_trade.Buy(volume,_Symbol,0.0,sl,0.0,InpTradeComment);
       rc=g_trade.ResultRetcode();
       done=(sent && IsDone(rc));
       if(!done && !IsRetryable(rc)) break;
@@ -1446,7 +1450,7 @@ void DrawDashboard()
    HUDBox("BASE",UI_X,UI_Y,UI_W,UI_H,CLR_PANEL,CLR_EDGE);
    HUDBox("STRIPE",UI_X,UI_Y,UI_W,3,accent,accent);
    HUDText("BRAND",UI_L,40,EA_NAME,CLR_GOLD,15);
-   HUDText("SUB",UI_L,68,"v"+EA_VERSION+"  /  BUY BEFORE SPIKE  /  FIB PRE-TOUCH  /  BASKET GUARD",CLR_MUTED,8);
+   HUDText("SUB",UI_L,68,"BY "+EA_AUTHOR+"  /  "+EA_BRAND+"  /  BUY BEFORE SPIKE",CLR_MUTED,8);
    HUDText("SYM",UI_L,88,HUDShort(_Symbol+"  "+TfName()+"  HEDGING  MAGIC "+IntegerToString((long)InpMagic),48),CLR_NEON,9);
    HUDBox("STATUS_BG",UI_L,110,UI_BAR_W,38,CLR_CARD,CLR_EDGE);
    HUDBox("LIGHT",UI_L+12,124,10,10,(InpEnableFX && g_ui.pulse) ? CLR_DIM : accent,accent);
@@ -1575,6 +1579,7 @@ string ValidateInputs()
    if(InpLotMode==LOT_FIXED && InpFixedLot>InpMaxLot)   return "Fixed lot is above the maximum lot";
    if(InpMaxOpenTrades<1 || InpMaxOpenTrades>50)        return "Maximum open trades must be 1-50";
    if(InpMagic==0)                                      return "Magic number must not be 0";
+   if(StringLen(InpTradeComment)<1 || StringLen(InpTradeComment)>31) return "Trade comment must be 1-31 characters";
    if(InpEntryZone<0 || InpEntryZone>4.236)             return "Entry zone must be 0-4.236";
    if(InpBeforeTouchPercent<=0 || InpBeforeTouchPercent>20) return "Pre-touch window must be above 0 and at most 20%";
    if(InpGridGapPercent<0 || InpGridGapPercent>100)     return "Grid gap must be 0-100%";
@@ -1613,14 +1618,14 @@ int OnInit()
 
    if((ENUM_ACCOUNT_MARGIN_MODE)AccountInfoInteger(ACCOUNT_MARGIN_MODE)!=ACCOUNT_MARGIN_MODE_RETAIL_HEDGING)
    {
-      Print(EA_TAG," | A HEDGING account is required (baskets and partial closes). Netting accounts are not supported.");
+      Print(EA_DISPLAY," | A HEDGING account is required (baskets and partial closes). Netting accounts are not supported.");
       return INIT_FAILED;
    }
    string problem=ValidateInputs();
-   if(problem!="") { Print(EA_TAG," | Input error: ",problem); return INIT_PARAMETERS_INCORRECT; }
+   if(problem!="") { Print(EA_DISPLAY," | Input error: ",problem); return INIT_PARAMETERS_INCORRECT; }
    if(!SymbolMatches())
    {
-      Print(EA_TAG," | ",_Symbol," does not contain '",InpSymbolKeyword,"'. Attach to MaxGainX 2000 or clear 'Trade only symbols containing'.");
+      Print(EA_DISPLAY," | ",_Symbol," does not contain '",InpSymbolKeyword,"'. Attach to MaxGainX 2000 or clear 'Trade only symbols containing'.");
       return INIT_PARAMETERS_INCORRECT;
    }
 
@@ -1634,7 +1639,7 @@ int OnInit()
       g_lock=FileOpen(g_prefix+"instance.lock",FILE_READ|FILE_WRITE|FILE_BIN|FILE_COMMON);
       if(g_lock==INVALID_HANDLE)
       {
-         Print(EA_TAG," | Another copy already runs on this account/symbol/magic. Use a different magic number.");
+         Print(EA_DISPLAY," | Another copy already runs on this account/symbol/magic. Use a different magic number.");
          return INIT_FAILED;
       }
    }
@@ -1646,7 +1651,7 @@ int OnInit()
       if(GlobalVariableCheck(g_prefix+"COOLDOWN")) g_guard.cooldownUntil=(datetime)(long)GlobalVariableGet(g_prefix+"COOLDOWN");
    }
    g_telegramOn=(InpTelegram && !g_tester && StringLen(InpTelegramToken)>0 && StringLen(InpTelegramChat)>0);
-   if(InpTelegram && !g_tester && !g_telegramOn) Print(EA_TAG," | Telegram is on but the token or chat id is empty - Telegram disabled.");
+   if(InpTelegram && !g_tester && !g_telegramOn) Print(EA_DISPLAY," | Telegram is on but the token or chat id is empty - Telegram disabled.");
 
    g_trade.SetExpertMagicNumber(InpMagic);
    g_trade.SetAsyncMode(false);
@@ -1663,7 +1668,7 @@ int OnInit()
    if(g_ui.draw) EventSetMillisecondTimer(TIMER_MS);
    RefreshUi();
 
-   Print(EA_TAG," | ",EA_NAME," v",EA_VERSION," on ",_Symbol," ",TfName()," | lot mode ",EnumToString(InpLotMode),
+   Print(EA_DISPLAY," | ",EA_NAME," v",EA_VERSION," by ",EA_AUTHOR," (",EA_BRAND,") on ",_Symbol," ",TfName()," | lot mode ",EnumToString(InpLotMode),
          " | basket stop ",DoubleToString(InpBasketStopPercent,1),"% | daily loss ",DoubleToString(InpMaxDailyLossPercent,1),
          "% | ",g_symbolStatus);
    return INIT_SUCCEEDED;

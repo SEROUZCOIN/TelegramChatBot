@@ -1,7 +1,10 @@
-# MaxGainX Spike Hunter v8.10
+# Adrenaline V3
 
 BUY-only Expert Advisor for **Weltrade SyntX MaxGainX 2000** (MetaTrader 5), rebuilt
-from the v7 "FLIPPER / ASTRA" Fibonacci grid. Author credit: Monetraaa / Sirojiddin Sobitov.
+from the v7 "FLIPPER / ASTRA" Fibonacci grid.
+
+**Creator and strategy:** Sirojiddin Sobitov · **Brand:** Serro Deriv !! ·
+**Trade comment:** `Adrenaline Open V3`
 
 > **Read this first — there is no "no-loss" EA.** SyntX prices are produced by an
 > algorithm, and spike timing is random: a long wait since the last spike does not
@@ -48,8 +51,8 @@ or terminal goes offline, set `Broker-side far stop-loss per trade` above 0.
 ## Installation
 
 1. In MetaTrader 5 (Weltrade), open **File → Open Data Folder**, then go to `MQL5\Experts\`.
-2. Copy the whole `MaxGainX` folder there.
-3. Open `MaxGainX_SpikeHunter.mq5` in MetaEditor and press **F7** (Compile). You should
+2. Copy the whole `Adrenaline` folder there.
+3. Open `Adrenaline_V3.mq5` in MetaEditor and press **F7** (Compile). You should
    get 0 errors and 0 warnings. If you get any, send me the exact lines.
 4. Open a **MaxGainX 2000** chart. **M1** is recommended, because it gives the most
    swings; M5 gives fewer, larger swings.
@@ -72,6 +75,7 @@ WebRequest for listed URL**. Never paste your token into chats or code.
 | | Use broker minimum lot | true | If the risk lot is below the broker minimum, trade the minimum. The dashboard shows `MIN` |
 | | Maximum open BUY trades | 5 | Basket size |
 | | Magic number | 20260818 | Use a different number on every chart |
+| | Trade comment | Adrenaline Open V3 | Comment written on every trade (max 31 characters) |
 | | Trade only symbols containing | GainX | Safety check against attaching to the wrong chart. Leave empty to allow any symbol |
 | Entry | Draw Fibonacci on | Every spike | `Every spike` (base → top of the last spike) or `Confirmed chart pivots` (v7 behaviour) |
 | | Entry zone | 0.236 | First level that may trigger. 0.236 = right after each spike; 0.5 or 0.618 = deeper, fewer trades |
@@ -117,17 +121,18 @@ WebRequest for listed URL**. Never paste your token into chats or code.
 
 ## What changed from v7
 
-| v7 | v8 |
+| v7 | Adrenaline V3 |
 |---|---|
 | Lots ×1.5 after every BUY (martingale) | Risk % or fixed lot. Never multiplies |
 | No stop at all, only profit trailing | Basket stop, stop-adding level, daily loss/profit limits, cooldown |
 | 20 BUYs allowed | 5 by default |
 | `CountBuys()` computed the lowest entry but never used it, so BUYs could stack at almost the same price | Grid gap below the lowest BUY is enforced |
 | Any Fibonacci level could trigger, including the 0 level (the swing top) | Only levels at or below the Entry zone (0.236 by default) |
-| Fibonacci only from chart pivots, confirmed 3 candles late | v8.10: a new Fibonacci from every spike, with a BUY before the first level is touched |
+| Fibonacci only from chart pivots, confirmed 3 candles late | A new Fibonacci from every spike, with a BUY before the first level is touched |
 | No spike awareness | Tick spike engine, spike banking, and a direction safety check |
 | Dashboard fully rebuilt on every tick | Redrawn on a 500 ms timer and skipped entirely in non-visual testing |
 | `#property strict` (an MQL4 leftover) | Removed |
+| Trade comment `FLP3:stage` | `Adrenaline Open V3` (editable input) |
 
 Kept from v7: the Fibonacci pivot engine, the pre-touch entry rule, level reservations
 that survive a restart, the single-instance lock, the free-margin guard, the broker
